@@ -1,10 +1,11 @@
-//! 把切换提示卡片渲染成验收图：字形（中 / en）× 主题（亮 / 暗）× 尺寸（100% / 150% DPI）。
+//! 把切换提示卡片渲染成验收图：字形（中 / en）× 主题（亮 / 暗）× 尺寸阶梯。
 //!
 //! 运行：`cargo run --example indicator_preview`
 //! 输出：`target/indicator_preview.png`
 //!
 //! 卡片在深色主题下铺深色底、亮色主题下铺浅色底（就是它实际会浮在的内容旁边），
-//! 每格放大看清圆角、发丝线、投影与字形居中。
+//! 每格放大看清形状、发丝线、投影与字形居中；尺寸那一列按 100% DPI 的像素值
+//! 排开，便于比较"多大才合适"。
 
 use capsime::indicator;
 
@@ -12,11 +13,11 @@ const PAD: u32 = 10;
 const BG_DARK: [u8; 3] = [32, 34, 40];
 const BG_LIGHT: [u8; 3] = [244, 245, 247];
 
-/// 预览放大倍数与格子边长（按最大卡片算，避免 150% 那列被裁掉）。
+/// 预览放大倍数；尺寸阶梯（100% DPI 的卡片边长，实际也会按所在显示器 DPI 缩放）。
 const SCALE: u32 = 3;
-/// 卡片边长（100% / 150% DPI）与阴影留白（与 indicator.rs 的 SHADOW_MARGIN 一致）。
-const SIZES: [i32; 2] = [56, 84];
-const SHADOW_MARGIN: f32 = 0.30;
+const SIZES: [i32; 4] = [32, 36, 40, 44];
+/// 与 indicator.rs 的 SHADOW_MARGIN 一致（算格子大小时要算上阴影留白）。
+const SHADOW_MARGIN: f32 = 0.34;
 
 struct Cell {
     rgba: Vec<u8>,

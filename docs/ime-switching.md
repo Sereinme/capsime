@@ -143,8 +143,8 @@ capsime 于是走一条四级阶梯，前两级是"插入点"，后两级是兜�
 
 ```
 DEBUG UIA 输入位置：（1157, 1009）（耗时 14 ms，焦点控件 Document（50030））
-DEBUG 指示器：锚点来自插入点（1157,1009)，DPI 144，卡片 84px 放在 (1175,1027)
-DEBUG 指示器：锚点来自输入框位置（UIA）（4272,2408)，DPI 120，卡片 70px 放在 (4287,2281)
+DEBUG 指示器：锚点来自插入点（1157,1009)，DPI 144，卡片 54px 放在 (1175,1027)
+DEBUG 指示器：锚点来自输入框位置（UIA）（4272,2408)，DPI 120，卡片 45px 放在 (4287,2293)
 ```
 
 本机实测清单（`cargo run --example caret_probe` 可复现）：
@@ -174,14 +174,14 @@ Windows SDK 10.0.16299 的 `um/UIAutomationClient.h`**（脚本按 Vtbl 结构�
 ink `#1d1d1f`，暗色用系统灰 `#3a3a3c`（**刻意不用近黑**：早先用 `#0f1014` 时卡片浮在
 深色界面上会糊成一团黑块，macOS 自己的 HUD 材质在暗色下同样取系统灰）。
 
-- 卡片 **56 逻辑像素**（150% 缩放下 84px、125% 下 70px），圆角 30%、按锚点所在显示器的
-  DPI 现画；
+- 卡片 **36 逻辑像素**（150% 缩放下 54px、125% 下 45px），形状是**超椭圆**（Apple 式连续
+  圆角方砖，`|u|⁴ + |v|⁴ = 1`），按锚点所在显示器的 DPI 现画；
 - 窗口：`WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，
   用 `SetWindowPos(..., SWP_NOACTIVATE | SWP_SHOWWINDOW)` 显示——**逐像素透明、点击穿透、
   不抢焦点**（抢焦点会让 IME 候选窗弹错位置）；
-- 位图：自己按像素画（圆角矩形 + 发丝线 + 柔和投影 smoothstep 衰减，4×4 超采样），
-  文字用 GDI + 系统字体（中文 Microsoft YaHei UI、`en` 用 Segoe UI Semibold）画成掩膜，
-  按墨迹包围盒做光学居中；
+- 位图：自己按像素画（超椭圆 + 1px 发丝线 + 暗色上缘微高光 + 柔和投影 smoothstep 衰减，
+  4×4 超采样），文字用 GDI + 系统字体（中文 Microsoft YaHei UI、`en` 用 Segoe UI Semibold）
+  画成掩膜，按墨迹包围盒做光学居中；
 - 交给 `UpdateLayeredWindow`（`ULW_ALPHA`，32bpp **预乘** alpha）显示；
 - 动画由 `SetTimer` 驱动：3 帧淡入（120ms）→ 12 帧停留（480ms）→ 4 帧淡出（160ms），
   没有轮询。
