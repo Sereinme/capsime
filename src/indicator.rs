@@ -2,7 +2,7 @@
 //!
 //! ## 为什么用「分层窗口 + 自绘」而不是 GUI 框架
 //!
-//! 这个提示只需要"一块 20×20、会自己消失的卡片"，但要求很硬：**逐像素透明、点击穿透、
+//! 这个提示只需要"一块 24×24、会自己消失的卡片"，但要求很硬：**逐像素透明、点击穿透、
 //! 绝不抢焦点**（抢焦点会让 IME 候选窗弹错位置）。原生分层窗口（`WS_EX_LAYERED` +
 //! `UpdateLayeredWindow`）正好把这三点直接给到；egui/Slint 这类框架要额外引入数 MB
 //! 依赖和 GPU 后端，还得跟框架搏斗才能做到不激活、逐像素透明——不划算。
@@ -49,7 +49,7 @@ use windows_sys::Win32::Graphics::Gdi::{
     AC_SRC_ALPHA, ANTIALIASED_QUALITY, BITMAPINFO, BITMAPINFOHEADER, BLENDFUNCTION,
     CLIP_DEFAULT_PRECIS, ClientToScreen, CreateCompatibleDC, CreateDIBSection, CreateFontW,
     DEFAULT_CHARSET, DEFAULT_PITCH, DIB_RGB_COLORS, DT_CENTER, DT_NOCLIP, DT_SINGLELINE,
-    DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, FW_SEMIBOLD, GetMonitorInfoW, HGDIOBJ,
+    DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, FW_BOLD, GetMonitorInfoW, HGDIOBJ,
     MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromPoint, OUT_TT_PRECIS, SelectObject,
     SetBkMode, SetTextColor, TRANSPARENT,
 };
@@ -86,9 +86,14 @@ const HOLD_FRAMES: u32 = 12;
 const FADE_OUT_FRAMES: u32 = 4;
 const TOTAL_FRAMES: u32 = FADE_IN_FRAMES + HOLD_FRAMES + FADE_OUT_FRAMES;
 
-/// 卡片设计尺寸（100% DPI 下的逻辑像素）、相对锚点的偏移与阴影留白比例。
-const CARD_LOGICAL: i32 = 20;
-const OFFSET_LOGICAL: i32 = 5;
+/// 卡片设计尺寸（100% DPI 下的逻辑像素）、相对锚点的固定间距与阴影留白比例。
+const CARD_LOGICAL: i32 = 24;
+/// 卡片与锚点之间的间距：**固定物理像素，不随 DPI 缩放**。
+///
+/// 之前按 DPI 缩放时，同一个逻辑值在 150% 屏上是 8px、125% 屏上是 6px，两块屏摆
+/// 在一起看，2K 那块明显更大。这个间距是给眼睛的呼吸感，跨屏一致比"物理等比"更重要；
+/// 1px 发丝线与 1px 投影偏移同理。
+const OFFSET_PX: i32 = 6;
 const SHADOW_MARGIN: f32 = 0.34;
 /// 插入点的合理性上限（像素）：超过即认为程序填的不是屏幕坐标。
 const CARET_MAX_PX: i32 = 200;
@@ -151,7 +156,7 @@ pub fn show(chinese: bool) {
     };
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let card = scale(CARD_LOGICAL, dpi);
-    let offset = scale(OFFSET_LOGICAL, dpi);
+    let offset = OFFSET_PX;
     let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
     let side = card + margin * 2;
 
@@ -566,18 +571,53 @@ fn squircle_f(x: f32, y: f32, center: f32, half: f32) -> f32 {
     u2 * u2 + v2 * v2
 }
 
+/// 卡片上的字形：字体、相对卡片边长的 em 比例、GDI 字重。
+///
+/// 两个字形的**笔画粗细要对齐**，这里用"2×面积/周长"量过（单位：像素，尺寸是卡片
+/// 36px 即 150% 缩放下的实际渲染值）：
+///
+/// | 字形 | 字重 | 笔画 |
+/// | --- | --- | --- |
+/// | 中（YaHei UI） | Bold / Regular | 3.71 / 2.22 |
+/// | en（Segoe UI） | Bold / Semibold / Regular | 3.64 / 2.67 / 2.18 |
+///
+/// 结论是"粗配粗、常规配常规"：Semibold 夹在中间，配谁都不像同一字重
+/// （早先两边都写 600，实际落到不同字面，看起来就是一粗一细）。
+/// 小徽章取粗的那一对，缩到 100% DPI 也不发虚。
+struct Glyph {
+    face: &'static str,
+    em_ratio: f32,
+    weight: i32,
+    text: &'static str,
+}
+
+fn glyph(chinese: bool) -> Glyph {
+    if chinese {
+        Glyph {
+            face: "Microsoft YaHei UI",
+            em_ratio: 0.68,
+            weight: FW_BOLD as i32,
+            text: "中",
+        }
+    } else {
+        Glyph {
+            face: "Segoe UI",
+            em_ratio: 0.76,
+            weight: FW_BOLD as i32,
+            text: "en",
+        }
+    }
+}
+
 /// 用系统字体把「中」/「en」画成 8 位覆盖率掩膜（白字黑底，取绿色通道）。
 ///
 /// 画两遍：先测墨迹包围盒，再按包围盒光学居中——小尺寸下这一步决定"看起来正不正"。
 fn text_mask(chinese: bool, card: i32) -> Vec<u8> {
     let size = card.max(1) as u32;
     let n = (size * size) as usize;
-    let (face, em_ratio, glyph) = if chinese {
-        ("Microsoft YaHei UI", 0.68, "中")
-    } else {
-        ("Segoe UI", 0.76, "en")
-    };
-    let em = (size as f32 * em_ratio).round().max(6.0) as i32;
+    let spec = glyph(chinese);
+    let face = spec.face;
+    let em = (size as f32 * spec.em_ratio).round().max(6.0) as i32;
 
     unsafe {
         let dc = CreateCompatibleDC(std::ptr::null_mut());
@@ -606,7 +646,7 @@ fn text_mask(chinese: bool, card: i32) -> Vec<u8> {
             0,
             0,
             0,
-            FW_SEMIBOLD as i32,
+            spec.weight,
             0,
             0,
             0,
@@ -627,7 +667,7 @@ fn text_mask(chinese: bool, card: i32) -> Vec<u8> {
         SetTextColor(dc, 0x00FF_FFFF);
         SetBkMode(dc, TRANSPARENT as i32);
 
-        let glyph_w = util::wide(glyph);
+        let glyph_w = util::wide(spec.text);
         let draw = |dx: i32, dy: i32| {
             std::ptr::write_bytes(bits as *mut u8, 0, n * 4);
             let mut rect = RECT {
@@ -823,15 +863,15 @@ mod tests {
 
     #[test]
     fn places_below_right_of_anchor() {
-        let p = place(POINT { x: 500, y: 400 }, 34, 5, work());
-        assert_eq!((p.x, p.y), (505, 405));
+        let p = place(POINT { x: 500, y: 400 }, 40, 6, work());
+        assert_eq!((p.x, p.y), (506, 406));
     }
 
     #[test]
     fn flips_left_and_up_near_edges() {
-        let p = place(POINT { x: 1900, y: 1030 }, 34, 5, work());
-        assert!(p.x + 34 <= 1920, "右边贴边时应翻到左侧：({}, {})", p.x, p.y);
-        assert!(p.y + 34 <= 1040, "下边贴边时应翻到上方：({}, {})", p.x, p.y);
+        let p = place(POINT { x: 1900, y: 1030 }, 40, 6, work());
+        assert!(p.x + 40 <= 1920, "右边贴边时应翻到左侧：({}, {})", p.x, p.y);
+        assert!(p.y + 40 <= 1040, "下边贴边时应翻到上方：({}, {})", p.x, p.y);
         assert!(p.x >= 0 && p.y >= 0);
     }
 
@@ -843,23 +883,23 @@ mod tests {
             right: 500,
             bottom: 400,
         };
-        let p = place(POINT { x: 120, y: 60 }, 34, 5, w);
+        let p = place(POINT { x: 120, y: 60 }, 40, 6, w);
         assert!(p.x >= 100 && p.y >= 50);
-        assert!(p.x + 34 <= 500 && p.y + 34 <= 400);
+        assert!(p.x + 40 <= 500 && p.y + 40 <= 400);
     }
 
     #[test]
     fn scales_with_dpi() {
-        assert_eq!(scale(20, 96), 20);
-        assert_eq!(scale(20, 144), 30);
-        assert_eq!(scale(20, 192), 40);
+        assert_eq!(scale(24, 96), 24);
+        assert_eq!(scale(24, 144), 36);
+        assert_eq!(scale(24, 192), 48);
     }
 
     #[test]
     fn squircle_is_rounder_than_a_square() {
         // 边长 40、中心 20、半边长 20：对角线方向在 0.83×半边长处仍在形状内，
         // 0.87 处已经出界（纯方砖要走到 1.0 才出界）——这就是连续圆角的手感
-        let (center, half) = (10.0f32, 10.0f32);
+        let (center, half) = (12.0f32, 12.0f32);
         assert!(squircle_f(center - 0.83 * half, center - 0.83 * half, center, half) < 1.0);
         assert!(squircle_f(center - 0.87 * half, center - 0.87 * half, center, half) > 1.0);
         // 边的中点恰好落在边界上
@@ -885,8 +925,8 @@ mod tests {
 
     #[test]
     fn card_has_premultiplied_alpha() {
-        let (pixels, side) = render_card(true, 20, false);
-        assert_eq!(side, 20 + (20f32 * SHADOW_MARGIN).round() as i32 * 2);
+        let (pixels, side) = render_card(true, 24, false);
+        assert_eq!(side, 24 + (24f32 * SHADOW_MARGIN).round() as i32 * 2);
         assert_eq!(pixels.len(), (side * side * 4) as usize);
         let i = ((side / 2) * side + side / 2) as usize * 4;
         assert!(pixels[i + 3] > 200, "卡片中心应不透明");
@@ -901,15 +941,15 @@ mod tests {
 
     #[test]
     fn chinese_and_english_cards_differ() {
-        let (cn, _) = render_card(true, 20, false);
-        let (en, _) = render_card(false, 20, false);
+        let (cn, _) = render_card(true, 24, false);
+        let (en, _) = render_card(false, 24, false);
         assert_ne!(cn, en, "「中」与「en」的卡片必须不同");
     }
 
     #[test]
     fn light_and_dark_cards_differ() {
-        let (dark, _) = render_card(true, 20, false);
-        let (light, _) = render_card(true, 20, true);
+        let (dark, _) = render_card(true, 24, false);
+        let (light, _) = render_card(true, 24, true);
         assert_ne!(dark, light, "亮/暗主题的卡片必须不同");
     }
 
@@ -917,7 +957,7 @@ mod tests {
     fn dark_card_is_not_near_black() {
         // 早先的暗色卡片用了 #0f1014，浮在深色界面上像一块黑斑——回归测试这条。
         // 取卡片内部（避开发丝线）不透明像素的中位数：中位数必然是卡面、不会落在字形上
-        let card = 20i32;
+        let card = 24i32;
         let (pixels, side) = render_card(true, card, false);
         let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
         let mut channels: Vec<Vec<u8>> = vec![Vec::new(); 3];
