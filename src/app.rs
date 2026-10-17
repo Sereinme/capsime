@@ -11,7 +11,7 @@
 //! 收到后重读主题并换图标。
 
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, AtomicU8, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -22,18 +22,31 @@ use windows_sys::Win32::System::Threading::{CreateMutexW, GetCurrentThreadId};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
     MessageBoxW, PostMessageW, PostQuitMessage, PostThreadMessageW, RegisterClassW,
-    TranslateMessage, WM_SETTINGCHANGE, WNDCLASSW,
+    TranslateMessage, WM_APP, WM_SETTINGCHANGE, WNDCLASSW,
 };
 
-use crate::{hook, log, switcher, theme, tray, util};
+use crate::{hook, indicator, log, switcher, theme, tray, util};
 
 const WM_QUIT: u32 = 0x0012;
 const MB_OK: u32 = 0x0000;
 const MB_ICONERROR: u32 = 0x0000_0010;
 const MB_SETFOREGROUND: u32 = 0x0001_0000;
+/// 工作线程 -> 主线程：切换成功，弹出「中 / 英」提示（wParam：1 = 中文）。
+const WM_SHOW_INDICATOR: u32 = WM_APP + 3;
 
-/// 主线程那个隐藏顶层窗口的句柄（退出时销毁，也便于将来扩展通知）。
+/// 主线程那个隐藏顶层窗口的句柄（收主题广播、收工作线程通知）。
 static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
+/// 跟踪到的当前输入语言：0 = 中文，1 = 英文（只用于给提示卡片选字形）。
+static LANG_CODE: AtomicU8 = AtomicU8::new(0);
+
+/// 当前语言是不是中文。
+fn current_is_chinese() -> bool {
+    LANG_CODE.load(Ordering::SeqCst) == 0
+}
+
+fn store_lang(chinese: bool) {
+    LANG_CODE.store(if chinese { 0 } else { 1 }, Ordering::SeqCst);
+}
 
 /// 正常启动：托盘常驻。
 pub fn run() -> i32 {
@@ -75,6 +88,10 @@ pub fn run() -> i32 {
     };
     MAIN_WINDOW.store(main_window as isize, Ordering::SeqCst);
 
+    // 启动时尽量读一次真实语言（现代程序多为 TSF，读不回来就按中文），
+    // 只用来决定提示卡片上显示「中」还是「en」
+    store_lang(switcher::read_current().unwrap_or(true));
+
     if let Err(e) = tray::init() {
         log::error(&format!("创建托盘图标失败：{e}"));
         hook::uninstall();
@@ -94,6 +111,7 @@ pub fn run() -> i32 {
 
     hook::uninstall();
     stop_worker(worker.tid);
+    indicator::shutdown();
     if !main_window.is_null() {
         unsafe { DestroyWindow(main_window) };
     }
@@ -241,6 +259,21 @@ fn do_switch() {
             ));
         }
     }
+
+    // 托盘提示卡片跟着语言走：读得回就用读到的，读不回就按"翻了一次"处理
+    if r.method != switcher::Method::None {
+        let chinese = match r.now_chinese {
+            Some(cn) => cn,
+            None => !current_is_chinese(),
+        };
+        store_lang(chinese);
+        if indicator::is_enabled() {
+            let hwnd = MAIN_WINDOW.load(Ordering::SeqCst) as HWND;
+            if !hwnd.is_null() {
+                unsafe { PostMessageW(hwnd, WM_SHOW_INDICATOR, usize::from(chinese), 0) };
+            }
+        }
+    }
 }
 
 fn message_loop() {
@@ -313,12 +346,16 @@ unsafe extern "system" fn wnd_proc(
         // 所以不做内容判断，直接重读注册表（很便宜）。
         if msg == WM_SETTINGCHANGE {
             tray::refresh_theme();
+        } else if msg == WM_SHOW_INDICATOR {
+            // 工作线程报告切换成功：wParam 非 0 = 中文
+            indicator::show(wparam != 0);
         }
         DefWindowProcW(hwnd, msg, wparam, lparam)
     }
 }
 
-/// 隐藏的顶层窗口：只为收系统的 `WM_SETTINGCHANGE` 广播（消息窗口收不到广播）。
+/// 隐藏的顶层窗口：收系统的 `WM_SETTINGCHANGE` 广播（消息窗口收不到广播），
+/// 同时作为工作线程通知主线程的落点（`WM_SHOW_INDICATOR`）。
 fn create_hidden_window(class_name: &str) -> Result<HWND, u32> {
     unsafe {
         let hinst = GetModuleHandleW(std::ptr::null());

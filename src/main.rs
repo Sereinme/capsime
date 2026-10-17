@@ -5,6 +5,9 @@
 //! 默认为托盘常驻模式；另提供 `--selftest`（冒烟自检）等调试入口。
 
 fn main() {
+    // 声明按显示器 DPI 感知：必须在创建任何窗口之前
+    capsime::util::set_per_monitor_dpi_aware();
+
     std::panic::set_hook(Box::new(|info| {
         capsime::log::error(&format!("panic: {info}"));
     }));

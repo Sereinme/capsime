@@ -24,6 +24,7 @@ switch is logged. Diagnostic tools included.
 ## Features
 
 - ⌨️ **CapsLock toggles Chinese/English** — only a lone CapsLock press is intercepted; chords stay native
+- 💬 **A hint on every switch** — a small 「中 / en」 card fades in near the caret (or the mouse cursor when no caret is available) and fades out in ~0.7 s; it follows the system light/dark mode and can be turned off from the tray menu
 - 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode and goes cool-gray while paused
 - 🪶 **Light** — one ~440 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
 - 🍃 **Zero polling** — the hook callback only posts one message; idle CPU measured at 0 ms over 15 s
@@ -57,6 +58,7 @@ Requires Rust 1.85+. Works with either the MSVC or GNU toolchain.
 | --- | --- |
 | Enable CapsLock switching | Pause/resume interception; while paused CapsLock behaves natively and the icon turns cool-gray |
 | Start with Windows | Adds/removes an `HKCU\...\CurrentVersion\Run` entry (current user only) |
+| Show switching hint | Pops the 「中 / en」 card near the caret / cursor (on by default) |
 | View log | Opens `%LOCALAPPDATA%\capsime\capsime.log` (rotates at 512 KB) |
 | Quit | Uninstalls the hook and exits |
 
@@ -127,6 +129,20 @@ trust what you see on screen.
 </details>
 
 <details>
+<summary><b>Why does the hint sometimes appear next to the cursor, and sometimes next to the input field?</b></summary>
+
+It prefers the **caret**: it reads the foreground thread's caret via `GetGUIThreadInfo`
+(`rcCaret` comes back in client coordinates and is converted with `ClientToScreen`, which is
+safe cross-process), and anchors the card to the input field when that works. Otherwise it
+falls back to the **mouse position**. macOS can always anchor to the input field because its
+text system obliges every editable view to report its insertion point; Windows has no such
+contract — details in [docs/ime-switching.md](docs/ime-switching.md) (Chinese).
+
+To see which anchor was used, start with `CAPSIME_DEBUG=1`: the log then says
+「锚点来自插入点 / 鼠标位置」 (caret / mouse).
+</details>
+
+<details>
 <summary><b>Is the switch instant? Does it slow down typing?</b></summary>
 
 The key injection itself takes < 1 ms and takes effect immediately. A switch is processed
@@ -174,40 +190,45 @@ unaffected and the system's `LowLevelHooksTimeout` (300 ms by default) is never 
 ```powershell
 cargo fmt
 cargo clippy                # no warnings
-cargo test                  # 21 unit tests
+cargo test                  # 29 unit tests
 cargo run --example icon_preview        # tray icon sheet: sizes × enabled/paused × themes
+cargo run --example indicator_preview   # switch-hint card sheet: glyphs × themes × 100/150% DPI
 cargo run --example ime_probe           # IME diagnostics: environment + per-path tests
 ```
 
 ```
 src/
-  main.rs       entry point (--version / --help / --selftest, tray dispatch)
-  app.rs        single instance, two message loops, lifecycle, theme broadcasts
+  main.rs       entry point (--version / --help / --selftest, tray dispatch, DPI awareness)
+  app.rs        single instance, two message loops, lifecycle, theme & hint notifications
   hook.rs       WH_KEYBOARD_LL hook: intercepts a lone CapsLock only
   switcher.rs   the switching core: read state, inject switch key, fall back & verify
   tray.rs       tray icon and menu
   icon.rs       tray icon: geometric ring + vermilion brush tail "C", light/dark themes
+  indicator.rs  switch hint: layered popup + hand-drawn card + caret/cursor anchoring
   theme.rs      system light/dark mode detection
   autostart.rs  autostart via an HKCU Run entry
   log.rs        minimal file log (512 KB rotation)
   util.rs       small Win32 helpers
 examples/
-  icon_preview.rs  tray icon review sheet
-  ime_probe.rs     IME switching diagnostics (also verifies in a real Notepad)
+  icon_preview.rs       tray icon review sheet
+  indicator_preview.rs  switch-hint card review sheet
+  ime_probe.rs          IME switching diagnostics (also verifies in a real Notepad)
 assets/icon/       icon design (SVG), previews, repo social-preview card and avatar
 docs/              design and implementation notes
 ```
 
-The icon is drawn entirely in code (no image assets): superellipse tile with a vertical
-gradient, edge highlight and a soft glyph shadow, supersampled 4×4 per pixel, rendered at
-the exact tray size for the current DPI.
+Both the icon and the hint card are drawn entirely in code (no image assets):
+superellipse/rounded-rect tile with a gradient, edge highlight and a soft shadow,
+supersampled 4×4 per pixel, rendered at the DPI of the monitor they land on. The hint is a
+layered window (`UpdateLayeredWindow`) giving it per-pixel transparency, click-through and
+no focus stealing; the glyph is rendered by GDI with system fonts.
 
 ## Roadmap
 
-- [ ] Show a brief "中 / 英" indicator **at the mouse position** when switching (like macOS)
 - [ ] Configuration file: custom switch key, excluded applications
 - [ ] Long-press CapsLock = native caps lock (short press toggles IME)
 - [ ] Hold CapsLock for temporary English (release returns to Chinese)
+- [ ] Hint card placement preference (above/below/left/right)
 
 ## License
 

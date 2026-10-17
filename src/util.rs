@@ -69,6 +69,19 @@ pub fn attach_parent_console() {
     unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
 }
 
+/// 声明进程按显示器 DPI 感知（PER_MONITOR_AWARE_V2）。
+///
+/// 必须在创建任何窗口之前调用。不声明的话，Windows 会把坐标与位图按"系统 DPI"
+/// 虚拟化/缩放——副屏缩放不同时，托盘图标与切换提示就会糊或错位。
+/// 现代 IME 与输入法提示都按显示器缩放渲染，我们也照做；失败（老系统或已被别处
+/// 设定）时忽略，退回系统缩放。
+pub fn set_per_monitor_dpi_aware() {
+    use windows_sys::Win32::UI::HiDpi::{
+        DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext,
+    };
+    unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+}
+
 /// 向控制台输出一行。
 ///
 /// GUI 子系统进程里 Rust 的 stdout 句柄不可靠，直接写 CONOUT$。

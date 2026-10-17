@@ -14,12 +14,13 @@ use std::cell::RefCell;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
-use crate::{autostart, hook, icon, log, theme, util};
+use crate::{autostart, hook, icon, indicator, log, theme, util};
 
 thread_local! {
     static TRAY: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
     static ENABLED_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
     static AUTOSTART_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
+    static HINT_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
     /// 当前图标要表达的状态（启用/暂停 + 亮/暗主题）
     static APPEARANCE: RefCell<icon::Appearance> = const {
         RefCell::new(icon::Appearance {
@@ -43,12 +44,14 @@ pub fn init() -> Result<(), String> {
 
     let enabled_item = CheckMenuItem::new("启用大写键切换", true, hook::is_enabled(), None);
     let autostart_item = CheckMenuItem::new("开机自动启动", true, autostart::is_enabled(), None);
+    let hint_item = CheckMenuItem::new("切换时显示提示", true, indicator::is_enabled(), None);
     let log_item = MenuItem::new("查看日志", true, None);
     let quit_item = MenuItem::new("退出", true, None);
 
     let menu = Menu::new();
     menu.append(&enabled_item).map_err(|e| e.to_string())?;
     menu.append(&autostart_item).map_err(|e| e.to_string())?;
+    menu.append(&hint_item).map_err(|e| e.to_string())?;
     menu.append(&PredefinedMenuItem::separator())
         .map_err(|e| e.to_string())?;
     menu.append(&log_item).map_err(|e| e.to_string())?;
@@ -64,12 +67,14 @@ pub fn init() -> Result<(), String> {
 
     let enabled_id = enabled_item.id().clone();
     let autostart_id = autostart_item.id().clone();
+    let hint_id = hint_item.id().clone();
     let log_id = log_item.id().clone();
     let quit_id = quit_item.id().clone();
 
     TRAY.with(|c| *c.borrow_mut() = Some(tray));
     ENABLED_ITEM.with(|c| *c.borrow_mut() = Some(enabled_item));
     AUTOSTART_ITEM.with(|c| *c.borrow_mut() = Some(autostart_item));
+    HINT_ITEM.with(|c| *c.borrow_mut() = Some(hint_item));
 
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let id = event.id();
@@ -77,6 +82,8 @@ pub fn init() -> Result<(), String> {
             on_toggle_enabled();
         } else if *id == autostart_id {
             on_toggle_autostart();
+        } else if *id == hint_id {
+            on_toggle_hint();
         } else if *id == log_id {
             if let Some(p) = log::path() {
                 util::open_path(p);
@@ -143,6 +150,22 @@ fn on_toggle_enabled() {
     });
     apply_appearance();
     log::info(if now { "已启用" } else { "已暂停" });
+}
+
+/// 切换"切换时显示提示"（光标附近的「中 / 英」小卡片）。
+fn on_toggle_hint() {
+    let now = !indicator::is_enabled();
+    indicator::set_enabled(now);
+    HINT_ITEM.with(|c| {
+        if let Some(item) = c.borrow().as_ref() {
+            item.set_checked(now);
+        }
+    });
+    log::info(if now {
+        "已开启切换提示"
+    } else {
+        "已关闭切换提示"
+    });
 }
 
 fn on_toggle_autostart() {

@@ -101,3 +101,57 @@ cargo run --example ime_probe -- --e2e      # 对着另一个真实进程验证�
 
 > 换输入法/换机器时请以 `--notepad` 的结果为准：不同输入法的中英文切换键可能不同
 > （capsime 默认注入 `Ctrl+Space`，微软拼音默认如此）。
+
+## 切换提示：为什么有时候跟光标，有时候跟输入框
+
+macOS 的输入法切换提示总能贴在输入框旁边，因为它有一套**系统级契约**：任何可编辑文本的
+视图都必须实现 `NSTextInputClient`，其中 `firstRectForCharacterRange:` 就是"我的插入点在哪"。
+IME 候选窗靠它定位，切换提示自然复用同一信息。
+
+Windows 没有这样的统一契约，等价信息散在三处且都拿不到或不可靠：
+
+| 来源 | 为什么用不上 |
+| --- | --- |
+| IME 的 `COMPOSITIONFORM`（应用报给 IME 的插入点） | 只有 IME 自己读得到，且只在组字期间有效 |
+| `GetCaretPos()` | caret 是**线程私有**的，只能读自己线程的 |
+| TSF `ITfContextView::GetTextExt` | 只有文本服务（IME）自己能调 |
+
+可用的旁路只有一个：**`GetGUIThreadInfo`**（`idThread = 0` 表示前台线程），它跨进程给出
+`hwndCaret` 与 `rcCaret`。capsime 的提示因此走一条阶梯：
+
+1. **插入点** —— 读 `GetGUIThreadInfo`，`rcCaret` 拿到后：
+   - 它是 **`hwndCaret` 的客户区坐标**（实测：文本框里把光标放到第 20 个字符，x ≈ 223 正是
+     客户区横坐标），所以用 `ClientToScreen` 换算；这个调用跨进程安全，而且由 Windows 负责
+     目标窗口的 DPI 映射；
+   - 再做合理性校验：尺寸在 (0,200] 像素内、落在外观可见的前台窗口内、落在显示器工作区内。
+     任何一条不满足就认为不可信（历史上确实有程序往里填客户区坐标）。
+2. **鼠标位置** —— 上面拿不到就退回光标，永远可用。
+
+用了哪一个会写进诊断日志（`CAPSIME_DEBUG=1` 启动）：
+
+```
+DEBUG 指示器：锚点来自插入点（1234,567)，DPI 144，卡片 132px 放在 (1261,594)
+DEBUG 指示器：锚点来自鼠标位置（2338,1140)，DPI 144，卡片 132px 放在 (2365,1167)
+```
+
+实测样例：Firefox（`zen.exe`）不暴露 Win32 caret → 走鼠标位置；多数经典编辑控件与
+部分编辑器/浏览器会暴露 caret → 走插入点。想覆盖更多现代程序，可以再加 UI Automation 的
+`TextPattern.GetSelection()`：它能给出选区矩形（含插入点），但要 COM、部分程序上耗时可达
+数百毫秒，必须丢到线程里加超时，不能放在切换路径上——留作后续增强。
+
+## 提示卡片本身是怎么画的
+
+不引入 GUI 框架，用**分层窗口 + 自绘**：
+
+- 窗口：`WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，
+  用 `SetWindowPos(..., SWP_NOACTIVATE | SWP_SHOWWINDOW)` 显示——**逐像素透明、点击穿透、
+  不抢焦点**（抢焦点会让 IME 候选窗弹错位置）；
+- 位图：自己按像素画（圆角矩形 + 竖向渐变 + 发丝线 + 柔和投影，4×4 超采样），
+  文字用 GDI + 系统字体（中文 Microsoft YaHei UI、`en` 用 Segoe UI Semibold）画成掩膜，
+  按墨迹包围盒做光学居中；坐标按光标所在显示器的 DPI 渲染（进程声明 per-monitor-v2）；
+- 交给 `UpdateLayeredWindow`（`ULW_ALPHA`，32bpp **预乘** alpha）显示；
+- 动画由 `SetTimer` 驱动：3 帧淡入（120ms）→ 12 帧停留（480ms）→ 4 帧淡出（160ms），
+  没有轮询。
+
+体积代价：0 个新依赖、约 500 行代码（含测试）；作为对比，引入 egui/Slint 这类框架会把
+440 KB 的单文件变成数 MB，还要额外跟框架搏斗才能做到不激活与逐像素透明。

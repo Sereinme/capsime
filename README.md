@@ -21,6 +21,8 @@ CapsLock 常年吃灰。capsime 把它变成中英文切换键：**按一下切�
 ## 特性
 
 - ⌨️ **CapsLock 中英文一键切换** —— 只拦"单独按下的 CapsLock"，其余组合键原样保留
+- 💬 **切换时给个提示** —— 在光标（能拿到插入点时就在输入框）附近弹出「中 / en」小卡片，约 0.7 秒淡出；
+  跟随系统亮/暗模式，不需要可在托盘菜单关掉
 - 🎨 **会看眼色的托盘图标** —— 几何圆环 + 一笔朱砂收锋的「C」，跟随系统亮/暗模式自动换色，暂停时转冷灰
 - 🪶 **轻量** —— 单文件 exe 约 440 KB；空闲工作集约 11 MB、私有内存 1.6 MB
 - 🍃 **零轮询** —— 钩子回调只投递一次消息；空闲 CPU 实测 15 秒内增长 0 ms
@@ -54,6 +56,7 @@ cargo build --release        # 产物：target\release\capsime.exe
 | --- | --- |
 | 启用大写键切换 | 临时暂停/恢复拦截；暂停后 CapsLock 恢复原生大写锁功能，图标转冷灰 |
 | 开机自动启动 | 写/删注册表 `HKCU\...\CurrentVersion\Run`（只影响当前用户） |
+| 切换时显示提示 | 在光标/输入框附近弹出「中 / en」小卡片（默认开） |
 | 查看日志 | 打开 `%LOCALAPPDATA%\capsime\capsime.log`（超过 512 KB 自动轮转一次） |
 | 退出 | 卸载钩子后退出 |
 
@@ -113,6 +116,19 @@ CapsLock 按下
 </details>
 
 <details>
+<summary><b>提示为什么有时出现在光标旁边、有时在输入框旁边？</b></summary>
+
+优先用**插入点**：从 `GetGUIThreadInfo` 读前台线程的插入点（`rcCaret` 是客户区坐标，
+用 `ClientToScreen` 换算，跨进程安全），拿到就把卡片贴到输入框附近；拿不到就退回
+**鼠标位置**。macOS 能让提示总贴着输入框，是因为它的文本系统要求每个可编辑视图上报
+插入点；Windows 没有这个统一契约，详见
+[docs/ime-switching.md](docs/ime-switching.md) 的「切换提示」一节。
+
+想看每次实际用的是哪个锚点：用 `CAPSIME_DEBUG=1` 启动，日志里会写
+「锚点来自插入点 / 鼠标位置」。
+</details>
+
+<details>
 <summary><b>切换有延迟吗？会不会拖慢打字？</b></summary>
 
 按键注入本身 < 1 ms，按下即生效。单次处理约 110 ms，其中 100 ms 是刻意的等待
@@ -159,43 +175,47 @@ CapsLock 按下
 ```powershell
 cargo fmt
 cargo clippy                # 无警告
-cargo test                  # 21 项单元测试
+cargo test                  # 29 项单元测试
 cargo run --example icon_preview        # 托盘图标验收图：尺寸 × 启用/暂停 × 亮/暗
+cargo run --example indicator_preview   # 切换提示卡片验收图：字形 × 主题 × 100%/150% DPI
 cargo run --example ime_probe           # 输入法切换排查：环境 + 逐条路径实测
 ```
 
 ```
 src/
-  main.rs       入口（--version / --help / --selftest 与托盘模式分发）
-  app.rs        单实例、双线程消息循环、装配与生命周期、主题广播接收
+  main.rs       入口（--version / --help / --selftest 与托盘模式分发、DPI 感知声明）
+  app.rs        单实例、双线程消息循环、装配与生命周期、主题广播与提示通知
   hook.rs       WH_KEYBOARD_LL 钩子：只拦截单独按下的 CapsLock
   switcher.rs   中英文切换：读状态 + 注入切换键 + 逐级兜底与核对（含单元测试）
   tray.rs       托盘图标与菜单
   icon.rs       托盘图标：几何圆环 + 朱砂收锋的「C」，亮/暗双主题（含单元测试）
+  indicator.rs  切换提示：分层弹窗 + 自绘卡片 + 插入点/光标定位（含单元测试）
   theme.rs      系统亮/暗模式检测
   autostart.rs  开机自启（HKCU Run 项，含单元测试）
   log.rs        极简文件日志（512 KB 轮转）
   util.rs       Win32 小工具（含单元测试）
 examples/
-  icon_preview.rs  托盘图标验收图生成
-  ime_probe.rs     输入法切换排查工具（环境检查 / 逐条路径实测 / 真实记事本验证）
+  icon_preview.rs       托盘图标验收图生成
+  indicator_preview.rs  切换提示卡片验收图生成
+  ime_probe.rs          输入法切换排查工具（环境检查 / 逐条路径实测 / 真实记事本验证）
 assets/icon/       图标设计稿（SVG）、预览图、仓库社交预览卡片与头像图
 docs/              设计与实现笔记
 ```
 
-图标是纯代码绘制的（无图片资源）：超椭圆底 + 竖向渐变 + 顶缘高光 + 图形柔和投影，
-逐像素 4×4 超采样抗锯齿，按系统 DPI 直接渲染托盘需要的尺寸。
+图标和提示卡片都是纯代码绘制的（无图片资源）：超椭圆/圆角矩形底 + 渐变 + 顶缘高光 +
+柔和投影，逐像素 4×4 超采样抗锯齿，按所在显示器 DPI 直接渲染；提示卡片用分层窗口
+（`UpdateLayeredWindow`）拿到逐像素透明、点击穿透、不抢焦点，文字交给 GDI + 系统字体。
 
 ## 路线图
 
-- [ ] 切换中英文时，在**鼠标位置**附近短暂显示「中 / 英」指示（类似 macOS 的输入法切换提示）
 - [ ] 配置文件：自定义注入的切换键、排除的程序
 - [ ] 长按 CapsLock = 原生大写锁（短按切换中英文）
 - [ ] 按住 CapsLock 临时英文（松开回到中文）
+- [ ] 提示卡片位置微调（上/下/左/右偏好）
 
 ## 文档
 
-- [中英文切换是怎么做的（及实测数据）](docs/ime-switching.md)
+- [中英文切换是怎么做的（及实测数据，含「切换提示」为什么有时跟光标）](docs/ime-switching.md)
 
 ## 许可
 
