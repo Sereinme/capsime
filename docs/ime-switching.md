@@ -116,42 +116,82 @@ Windows 没有这样的统一契约，等价信息散在三处且都拿不到或
 | `GetCaretPos()` | caret 是**线程私有**的，只能读自己线程的 |
 | TSF `ITfContextView::GetTextExt` | 只有文本服务（IME）自己能调 |
 
-可用的旁路只有一个：**`GetGUIThreadInfo`**（`idThread = 0` 表示前台线程），它跨进程给出
-`hwndCaret` 与 `rcCaret`。capsime 的提示因此走一条阶梯：
+capsime 于是走一条四级阶梯，前两级是"插入点"，后两级是兜底：
 
-1. **插入点** —— 读 `GetGUIThreadInfo`，`rcCaret` 拿到后：
-   - 它是 **`hwndCaret` 的客户区坐标**（实测：文本框里把光标放到第 20 个字符，x ≈ 223 正是
-     客户区横坐标），所以用 `ClientToScreen` 换算；这个调用跨进程安全，而且由 Windows 负责
-     目标窗口的 DPI 映射；
-   - 再做合理性校验：尺寸在 (0,200] 像素内、落在外观可见的前台窗口内、落在显示器工作区内。
-     任何一条不满足就认为不可信（历史上确实有程序往里填客户区坐标）。
-2. **鼠标位置** —— 上面拿不到就退回光标，永远可用。
+1. **Win32 插入点** —— `GetGUIThreadInfo`（`idThread = 0` 表示前台线程）跨进程给出
+   `hwndCaret` 与 `rcCaret`：
+   - `rcCaret` 是 **`hwndCaret` 的客户区坐标**（实测：文本框里把光标放到第 20 个字符，
+     x ≈ 223 正是客户区横坐标），所以用 `ClientToScreen` 换算；这个调用跨进程安全，
+     而且由 Windows 负责目标窗口的 DPI 映射；
+   - 但它只在光标"正在显示"时才给：WinUI 记事本实测忽有忽无，不能当唯一来源。
+2. **UIA 插入点** —— UI Automation 的 `TextPattern`（浏览器、Electron、WinUI 都实现了）：
+   `TextPattern2.GetCaretRange()` 直接给插入点范围，不行再退回
+   `TextPattern.GetSelection()` 取最后一个范围（多行选区时它的末端才是插入点），
+   最后 `GetBoundingRectangles()` 拿矩形。实测与 .NET 的 `System.Windows.Automation`
+   **逐位一致**：记事本（WinUI）给出 `1157,957,1,52`、Firefox 网页 textarea 给出
+   `1228,1912,1,29`；查询耗时 14–17 ms，且跑在切换工作线程上（连接/事务超时收紧到
+   250 ms，前台程序卡死也不会拖住钩子线程）。
+3. **UIA 输入框外框** —— 有的程序给了 `TextPattern` 却**不给矩形**：Chromium/Electron
+   的网页输入框、Windows Terminal 都是这样（.NET 基准同样是空）。这时退到焦点控件的
+   `BoundingRectangle` 左下角——至少贴在输入框上，而不是跑到鼠标那边。
+4. **鼠标位置** —— 都拿不到（比如焦点根本不在输入框上）才退回光标，永远可用。
 
-用了哪一个会写进诊断日志（`CAPSIME_DEBUG=1` 启动）：
+前三级共用同一套合理性校验：尺寸在 (0,200] 像素内（插入点）或非退化（外框）、落在外观
+可见的前台窗口附近、落在显示器工作区内，任何一条不满足就降到下一级。
+
+用了哪一级会写进诊断日志（`CAPSIME_DEBUG=1` 启动）：
 
 ```
-DEBUG 指示器：锚点来自插入点（1234,567)，DPI 144，卡片 132px 放在 (1261,594)
-DEBUG 指示器：锚点来自鼠标位置（2338,1140)，DPI 144，卡片 132px 放在 (2365,1167)
+DEBUG UIA 输入位置：（1157, 1009）（耗时 14 ms，焦点控件 Document（50030））
+DEBUG 指示器：锚点来自插入点（1157,1009)，DPI 144，卡片 84px 放在 (1175,1027)
+DEBUG 指示器：锚点来自输入框位置（UIA）（4272,2408)，DPI 120，卡片 70px 放在 (4287,2281)
 ```
 
-实测样例：Firefox（`zen.exe`）不暴露 Win32 caret → 走鼠标位置；多数经典编辑控件与
-部分编辑器/浏览器会暴露 caret → 走插入点。想覆盖更多现代程序，可以再加 UI Automation 的
-`TextPattern.GetSelection()`：它能给出选区矩形（含插入点），但要 COM、部分程序上耗时可达
-数百毫秒，必须丢到线程里加超时，不能放在切换路径上——留作后续增强。
+本机实测清单（`cargo run --example caret_probe` 可复现）：
+
+| 前台程序 | Win32 插入点 | UIA | 提示落在哪 |
+| --- | --- | --- | --- |
+| 记事本（Win11 / WinUI） | 忽有忽无 | ✅ 插入点（`Document`） | 插入点 |
+| Firefox（`zen.exe`）网页 textarea | ✅（与 UIA 同一位置） | ✅ 插入点（`Edit`） | 插入点 |
+| ZCode（Electron / Chromium）聊天框 | ❌ | ⚠️ 只给外框 | 输入框外框 |
+| Windows Terminal | ❌ | ⚠️ 给了范围但不给矩形 | 输入框外框 |
+| 焦点不在输入框上（如阅读网页） | ❌ | ❌ | 鼠标位置 |
+
+### UIA 为什么要手写 COM 接口
+
+windows-sys 只生成 UIA 的 **provider 侧** flat API（`TextRange_*` 那批），没有客户端的
+`IUIAutomation` 等 COM 接口；引入官方 `windows` crate 又会带进一整套元 crate。
+`src/uia.rs` 因此按 vtable 槽位手写最小接口：**槽位顺序与 IID 逐条取自
+Windows SDK 10.0.16299 的 `um/UIAutomationClient.h`**（脚本按 Vtbl 结构体定义顺序提取，
+含 3 个 IUnknown 槽位），并与 .NET 的 UIA 读数逐位核对过——同一次查询两边给出的
+插入点矩形完全一致。
 
 ## 提示卡片本身是怎么画的
 
-不引入 GUI 框架，用**分层窗口 + 自绘**：
+不引入 GUI 框架，用**分层窗口 + 自绘**。外观照 Apple 的公开设计系统（
+[awesome-design-md](https://github.com/VoltAgent/awesome-design-md) 收录的 `apple.md`）：
+**没有装饰性渐变**——纯色卡面 + 1px 发丝线 + 一道柔和投影，字重 600；亮色用白底 +
+ink `#1d1d1f`，暗色用系统灰 `#3a3a3c`（**刻意不用近黑**：早先用 `#0f1014` 时卡片浮在
+深色界面上会糊成一团黑块，macOS 自己的 HUD 材质在暗色下同样取系统灰）。
 
+- 卡片 **56 逻辑像素**（150% 缩放下 84px、125% 下 70px），圆角 30%、按锚点所在显示器的
+  DPI 现画；
 - 窗口：`WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，
   用 `SetWindowPos(..., SWP_NOACTIVATE | SWP_SHOWWINDOW)` 显示——**逐像素透明、点击穿透、
   不抢焦点**（抢焦点会让 IME 候选窗弹错位置）；
-- 位图：自己按像素画（圆角矩形 + 竖向渐变 + 发丝线 + 柔和投影，4×4 超采样），
+- 位图：自己按像素画（圆角矩形 + 发丝线 + 柔和投影 smoothstep 衰减，4×4 超采样），
   文字用 GDI + 系统字体（中文 Microsoft YaHei UI、`en` 用 Segoe UI Semibold）画成掩膜，
-  按墨迹包围盒做光学居中；坐标按光标所在显示器的 DPI 渲染（进程声明 per-monitor-v2）；
+  按墨迹包围盒做光学居中；
 - 交给 `UpdateLayeredWindow`（`ULW_ALPHA`，32bpp **预乘** alpha）显示；
 - 动画由 `SetTimer` 驱动：3 帧淡入（120ms）→ 12 帧停留（480ms）→ 4 帧淡出（160ms），
   没有轮询。
 
-体积代价：0 个新依赖、约 500 行代码（含测试）；作为对比，引入 egui/Slint 这类框架会把
-440 KB 的单文件变成数 MB，还要额外跟框架搏斗才能做到不激活与逐像素透明。
+体积代价：**0 个新依赖**（UIA 那部分也是手写 COM，没引入 `windows` crate）、
+约 1200 行代码（含 UIA 与测试）；作为对比，引入 egui/Slint 这类框架会把
+460 KB 的单文件变成数 MB，还要额外跟框架搏斗才能做到不激活与逐像素透明。
+
+运行代价：第一次真正查 UIA 之后，进程会常驻多出 8 个线程、工作集约 +7 MB
+（`uiautomationcore` 的连接与回调线程；实测把 COM 套间在每次查询后还回去也回收不掉），
+之后不再增长，空闲时也不动；托盘菜单关掉提示就完全不加载 UIA。另外，查询会让
+浏览器/Electron 常驻开启它们的无障碍引擎——这是任何 UIA 客户端都会有的副作用
+（也正是"插入点"这份信息的来源），同样可以用托盘开关完全避免。

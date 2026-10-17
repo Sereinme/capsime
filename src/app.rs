@@ -25,7 +25,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     TranslateMessage, WM_APP, WM_SETTINGCHANGE, WNDCLASSW,
 };
 
-use crate::{hook, indicator, log, switcher, theme, tray, util};
+use crate::{hook, indicator, log, switcher, theme, tray, uia, util};
 
 const WM_QUIT: u32 = 0x0012;
 const MB_OK: u32 = 0x0000;
@@ -148,6 +148,20 @@ pub fn selftest(seconds: u64) -> i32 {
     util::console_print("OK: 键盘钩子已安装（本次自检期间会拦截 CapsLock）");
     log::info("selftest: 钩子已安装");
 
+    // 隐藏的顶层窗口与正常启动一致：提示卡片要靠它接住工作线程的 WM_SHOW_INDICATOR，
+    // 否则自检会"切换成功但什么也不显示"
+    let main_window = match create_hidden_window("capsime_main_wnd") {
+        Ok(h) => h,
+        Err(code) => {
+            util::console_print(&format!(
+                "WARN: 创建主窗口失败（错误码 {code}），提示卡片不显示"
+            ));
+            log::warn(&format!("selftest: 创建主窗口失败（错误码 {code}）"));
+            0 as HWND
+        }
+    };
+    MAIN_WINDOW.store(main_window as isize, Ordering::SeqCst);
+
     // 直接投递一次切换请求，验证"钩子线程 -> 工作线程"的链路
     unsafe { PostMessageW(worker.hwnd, hook::WM_SWITCH, 0, 0) };
     util::console_print("INFO: 已投递一次切换请求（结果见日志）");
@@ -161,6 +175,10 @@ pub fn selftest(seconds: u64) -> i32 {
 
     hook::uninstall();
     stop_worker(worker.tid);
+    indicator::shutdown();
+    if !main_window.is_null() {
+        unsafe { DestroyWindow(main_window) };
+    }
     util::console_print("OK: selftest 结束，钩子已卸载");
     log::info("selftest: 结束");
     0
@@ -268,6 +286,29 @@ fn do_switch() {
         };
         store_lang(chinese);
         if indicator::is_enabled() {
+            // 浏览器/Electron/WinUI 不创建 Win32 caret，输入位置只能从 UI Automation 拿。
+            // 在工作线程上做（跨进程调用可能被前台程序拖住），钩子与托盘不受影响
+            let started = std::time::Instant::now();
+            let anchors = uia::anchors();
+            let elapsed = started.elapsed().as_millis();
+            if let Some(point) = anchors.caret {
+                indicator::note_caret_hint(point);
+            } else if let Some(point) = anchors.field {
+                indicator::note_field_hint(point);
+            }
+            if log::debug_enabled() {
+                let kind = uia::focused_control_type()
+                    .map(|id| format!("{}（{}）", uia::control_type_name(id), id))
+                    .unwrap_or_else(|| "未知".into());
+                log::debug(&format!(
+                    "UIA 输入位置：{}（耗时 {elapsed} ms，焦点控件 {kind}）",
+                    match (anchors.caret, anchors.field) {
+                        (Some(p), _) => format!("（{}, {}）", p.x, p.y),
+                        (None, Some(p)) => format!("无插入点，退到输入框外框（{}, {}）", p.x, p.y),
+                        (None, None) => "无".into(),
+                    },
+                ));
+            }
             let hwnd = MAIN_WINDOW.load(Ordering::SeqCst) as HWND;
             if !hwnd.is_null() {
                 unsafe { PostMessageW(hwnd, WM_SHOW_INDICATOR, usize::from(chinese), 0) };

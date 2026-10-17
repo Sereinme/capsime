@@ -1,8 +1,8 @@
-//! 切换中英文时，在光标附近弹出的「中 / 英」提示卡片。
+//! 切换中英文时，在输入位置附近弹出的「中 / en」提示卡片。
 //!
 //! ## 为什么用「分层窗口 + 自绘」而不是 GUI 框架
 //!
-//! 这个提示只需要"一块 88×88、会自己消失的卡片"，但要求很硬：**逐像素透明、点击穿透、
+//! 这个提示只需要"一块 56×56、会自己消失的卡片"，但要求很硬：**逐像素透明、点击穿透、
 //! 绝不抢焦点**（抢焦点会让 IME 候选窗弹错位置）。原生分层窗口（`WS_EX_LAYERED` +
 //! `UpdateLayeredWindow`）正好把这三点直接给到；egui/Slint 这类框架要额外引入数 MB
 //! 依赖和 GPU 后端，还得跟框架搏斗才能做到不激活、逐像素透明——不划算。
@@ -11,15 +11,29 @@
 //! ## 位置：优先插入点，拿不到才退回光标
 //!
 //! macOS 的提示能贴着输入框弹，是因为它的文本系统要求每个可编辑视图上报插入点
-//! （`NSTextInputClient.firstRectForCharacterRange:`）。Windows 没有这个统一契约：
-//! IME 拿到的 `COMPOSITIONFORM` 外部进程读不到，caret 又是线程私有的。可用的是
-//! `GetGUIThreadInfo` 的 `rcCaret`（**可跨进程**读前台线程的插入点），所以顺序是：
+//! （`NSTextInputClient.firstRectForCharacterRange:`）。Windows 没有这个统一契约，
+//! 但可以沿三条路找，依次是：
 //!
-//! 1. [`InsertionPoint::Caret`]：取插入点，先做合理性校验（宽高在 (0,200] 像素内、
-//!    且落在光标所在显示器工作区内），个别程序填客户区坐标的情况会被挡掉；
-//! 2. [`InsertionPoint::Cursor`]：退回鼠标位置，永远可用。
+//! 1. [`InsertionPoint::Caret`]：`GetGUIThreadInfo` 的 `rcCaret`（**可跨进程**读前台
+//!    线程的插入点），经典编辑控件都会提供；WinUI 这类程序只在光标显示时才给，忽有忽无；
+//! 2. [`InsertionPoint::UiaCaret`]：浏览器（Firefox/Chromium）、Electron、WinUI 不创建
+//!    Win32 caret，改由 [`crate::uia`] 走 UI Automation 的 `TextPattern` 读插入点
+//!    （工作线程在切换时预先查好，见 `app::do_switch`）；
+//! 3. [`InsertionPoint::UiaField`]：有的程序（Chromium 系、Windows Terminal）给了
+//!    `TextPattern` 却不给插入点矩形，就退到**焦点控件的外框左下角**——至少贴在
+//!    输入框上，而不是跑到鼠标那边；
+//! 4. [`InsertionPoint::Cursor`]：都拿不到才退回鼠标位置，永远可用。
 //!
-//! 用了哪一个会写进 `CAPSIME_DEBUG` 的诊断日志，便于按程序排查。
+//! 前两条都要过合理性校验（宽高在 (0,200] 像素内、落在外观可见的前台窗口附近、且在工作
+//! 区内），个别程序填客户区坐标的情况会被挡掉。用了哪一个会写进 `CAPSIME_DEBUG` 的诊断
+//! 日志，便于按程序排查。
+//!
+//! ## 卡片外观
+//!
+//! 照 Apple 的公开设计系统（`apple.md`）：**没有装饰性渐变**——纯色卡面 + 1px 发丝线 +
+//! 一道柔和投影，字重 600，圆角走连续圆角的比例。亮色是白底 + ink `#1d1d1f`；暗色刻意
+//! 用系统灰 `#3a3a3c` 而不是近黑——近黑浮在深色界面上会糊成一团，这也是 macOS 的 HUD
+//! 材质在暗色下取系统灰的原因。
 //!
 //! ## 线程与消息
 //!
@@ -55,6 +69,14 @@ static ENABLED: AtomicBool = AtomicBool::new(true);
 static WINDOW: AtomicIsize = AtomicIsize::new(0);
 /// 动画当前步数。
 static STEP: AtomicU32 = AtomicU32::new(0);
+/// UIA 读到的输入位置（工作线程写入、主线程消费，用过即清）。
+static UIA_HINT_X: AtomicIsize = AtomicIsize::new(0);
+static UIA_HINT_Y: AtomicIsize = AtomicIsize::new(0);
+static UIA_HINT_SET: AtomicBool = AtomicBool::new(false);
+/// UIA 读到的焦点控件外框（插入点不可得时的粗锚点）。
+static UIA_FIELD_X: AtomicIsize = AtomicIsize::new(0);
+static UIA_FIELD_Y: AtomicIsize = AtomicIsize::new(0);
+static UIA_FIELD_SET: AtomicBool = AtomicBool::new(false);
 
 const TIMER_ID: usize = 1;
 const FRAME_MS: u32 = 40;
@@ -64,11 +86,11 @@ const HOLD_FRAMES: u32 = 12;
 const FADE_OUT_FRAMES: u32 = 4;
 const TOTAL_FRAMES: u32 = FADE_IN_FRAMES + HOLD_FRAMES + FADE_OUT_FRAMES;
 
-/// 卡片设计尺寸（100% DPI 下的逻辑像素）、相对插入点的偏移、阴影留白与圆角比例。
-const CARD_LOGICAL: i32 = 88;
-const OFFSET_LOGICAL: i32 = 18;
-const SHADOW_MARGIN: f32 = 0.10;
-const CARD_RADIUS: f32 = 0.24;
+/// 卡片设计尺寸（100% DPI 下的逻辑像素）、相对锚点的偏移、阴影留白与圆角比例。
+const CARD_LOGICAL: i32 = 56;
+const OFFSET_LOGICAL: i32 = 12;
+const SHADOW_MARGIN: f32 = 0.30;
+const CARD_RADIUS: f32 = 0.30;
 /// 插入点的合理性上限（像素）：超过即认为程序填的不是屏幕坐标。
 const CARET_MAX_PX: i32 = 200;
 /// 插入点允许落在前台窗口外的容差（像素）。
@@ -85,6 +107,22 @@ pub fn set_enabled(enabled: bool) {
 
 pub fn is_enabled() -> bool {
     ENABLED.load(Ordering::SeqCst)
+}
+
+/// 工作线程在切换后调用：记下 UI Automation 读到的输入位置，供本次提示使用。
+///
+/// 主线程在 [`show`] 里一次性取走（用过即清），迟到的值不会影响下一次提示。
+pub fn note_caret_hint(point: POINT) {
+    UIA_HINT_X.store(point.x as isize, Ordering::SeqCst);
+    UIA_HINT_Y.store(point.y as isize, Ordering::SeqCst);
+    UIA_HINT_SET.store(true, Ordering::SeqCst);
+}
+
+/// 工作线程在切换后调用：记下焦点控件的外框（插入点不可得时的粗锚点）。
+pub fn note_field_hint(point: POINT) {
+    UIA_FIELD_X.store(point.x as isize, Ordering::SeqCst);
+    UIA_FIELD_Y.store(point.y as isize, Ordering::SeqCst);
+    UIA_FIELD_SET.store(true, Ordering::SeqCst);
 }
 
 /// 弹出提示（主线程调用）。`chinese` 为真显示「中」，否则显示「en」。
@@ -124,6 +162,8 @@ pub fn show(chinese: bool) {
         "指示器：锚点来自{}（{},{})，DPI {dpi}，卡片 {card}px 放在 ({},{})",
         match source {
             InsertionPoint::Caret => "插入点",
+            InsertionPoint::UiaCaret => "输入位置（UIA）",
+            InsertionPoint::UiaField => "输入框位置（UIA）",
             InsertionPoint::Cursor => "鼠标位置",
         },
         anchor.x,
@@ -205,25 +245,73 @@ unsafe extern "system" fn tick(hwnd: HWND) {
 
 // --- 位置（纯函数，便于单测）---------------------------------------------
 
-/// 插入点来源，只用于诊断日志。
+/// 插入点来源，只用于诊断日志与锚点选择。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum InsertionPoint {
-    /// 前台线程的插入点（`GetGUIThreadInfo` 的 `rcCaret`）
+    /// 前台线程的 Win32 插入点（`GetGUIThreadInfo` 的 `rcCaret`）
     Caret,
-    /// 鼠标位置（永远可用的回退）
+    /// UI Automation 读到的插入点（浏览器/Electron/WinUI 等不创建 Win32 caret 的程序）
+    UiaCaret,
+    /// UI Automation 给的焦点控件外框：程序不给插入点矩形时的粗锚点
+    /// （Chromium 系、Windows Terminal 就是这样）
+    UiaField,
+    /// 鼠标位置（最后的手段）
     Cursor,
 }
 
-/// 计算锚点：优先插入点，校验不过就用光标。
+/// 计算锚点：Win32 插入点 → UIA 插入点 → UIA 输入框外框 → 鼠标位置。
 fn anchor_point() -> Option<(POINT, InsertionPoint)> {
     if let Some(p) = caret_point() {
         return Some((p, InsertionPoint::Caret));
+    }
+    if let Some(p) = take_hint(&UIA_HINT_SET, &UIA_HINT_X, &UIA_HINT_Y) {
+        return Some((p, InsertionPoint::UiaCaret));
+    }
+    if let Some(p) = take_hint(&UIA_FIELD_SET, &UIA_FIELD_X, &UIA_FIELD_Y) {
+        return Some((p, InsertionPoint::UiaField));
     }
     let mut cursor = POINT { x: 0, y: 0 };
     if unsafe { GetCursorPos(&mut cursor) } == 0 {
         return None;
     }
     Some((cursor, InsertionPoint::Cursor))
+}
+
+/// 取一次工作线程记下的 UIA 锚点（用过即清），并做与 Win32 caret 相同的合理性校验。
+fn take_hint(set: &AtomicBool, x: &AtomicIsize, y: &AtomicIsize) -> Option<POINT> {
+    if !set.swap(false, Ordering::SeqCst) {
+        return None;
+    }
+    let point = POINT {
+        x: x.load(Ordering::SeqCst) as i32,
+        y: y.load(Ordering::SeqCst) as i32,
+    };
+    let fg = unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow() };
+    if fg.is_null() {
+        return None;
+    }
+    let mut window: RECT = unsafe { std::mem::zeroed() };
+    if unsafe { windows_sys::Win32::UI::WindowsAndMessaging::GetWindowRect(fg, &mut window) } == 0 {
+        return None;
+    }
+    caret_point_on_screen(point, window, work_area(point))
+}
+
+/// 诊断用：单取一次 Win32 插入点，不改动任何状态（`caret_probe` 用）。
+pub fn win32_caret_point() -> Option<POINT> {
+    caret_point()
+}
+
+/// 诊断用：按提示卡片真实使用的顺序算一次锚点，并给出会走哪条路（不做任何显示）。
+pub fn planned_anchor() -> Option<(POINT, &'static str)> {
+    let (point, source) = anchor_point()?;
+    let label = match source {
+        InsertionPoint::Caret => "Win32 插入点",
+        InsertionPoint::UiaCaret => "UIA 输入位置",
+        InsertionPoint::UiaField => "UIA 输入框外框",
+        InsertionPoint::Cursor => "鼠标位置",
+    };
+    Some((point, label))
 }
 
 /// 前台线程的插入点（屏幕物理坐标）。校验不过返回 None。
@@ -328,33 +416,43 @@ fn scale(logical: i32, dpi: u32) -> i32 {
 // --- 卡片绘制（自绘，逐像素 4×4 超采样）-----------------------------------
 
 struct CardPalette {
-    bg: [[f32; 3]; 2],
+    /// 卡面颜色（纯色，不用装饰性渐变——Apple 的 UI chrome 就没有渐变）
+    fill: [f32; 3],
+    fill_alpha: f32,
+    /// 1px 发丝线
     border: [f32; 3],
     border_alpha: f32,
+    /// 投影：向下偏移 + 柔和模糊
     shadow_alpha: f32,
+    shadow_blur: f32,
     text: [f32; 3],
-    bg_alpha: f32,
 }
 
-/// 卡片配色跟随系统亮/暗（半透明，浮在任意内容上都看得清）。
+/// 卡片配色跟随系统亮/暗，取值照 Apple 公开的设计系统：
+/// 亮色 = 白底 + 8% 黑发丝线 + ink `#1d1d1f`；暗色 = 系统灰 `#3a3a3c` + 白字。
+///
+/// 暗色**刻意不用近黑**（早先用 `#0f1014` 时，卡片浮在深色界面上会糊成一团黑块）——
+/// macOS 自己的 HUD 材质在暗色下同样取系统灰。
 fn palette(light: bool) -> CardPalette {
     if light {
         CardPalette {
-            bg: [[248.0, 249.0, 251.0], [232.0, 234.0, 239.0]],
+            fill: [255.0, 255.0, 255.0],
+            fill_alpha: 0.97,
             border: [0.0, 0.0, 0.0],
             border_alpha: 0.08,
-            shadow_alpha: 0.30,
+            shadow_alpha: 0.18,
+            shadow_blur: 0.24,
             text: [29.0, 29.0, 31.0],
-            bg_alpha: 0.96,
         }
     } else {
         CardPalette {
-            bg: [[26.0, 28.0, 34.0], [15.0, 16.0, 20.0]],
+            fill: [58.0, 58.0, 60.0],
+            fill_alpha: 0.96,
             border: [255.0, 255.0, 255.0],
             border_alpha: 0.14,
-            shadow_alpha: 0.45,
-            text: [245.0, 247.0, 250.0],
-            bg_alpha: 0.94,
+            shadow_alpha: 0.40,
+            shadow_blur: 0.24,
+            text: [255.0, 255.0, 255.0],
         }
     }
 }
@@ -423,7 +521,7 @@ fn render_card(chinese: bool, card: i32, light: bool) -> (Vec<u8>, i32) {
     (out, side)
 }
 
-/// 单个采样点：卡片（圆角矩形 + 竖向渐变 + 内侧发丝线）与外投影。
+/// 单个采样点：卡片（纯色卡面 + 内侧发丝线）与外投影。
 fn card_sample(
     pal: &CardPalette,
     x: f32,
@@ -435,21 +533,21 @@ fn card_sample(
 ) -> (f32, [f32; 3]) {
     let d = round_rect_sdf(x, y, x0, x1, radius);
     if d <= 0.0 {
-        let t = ((y - x0) / (x1 - x0)).clamp(0.0, 1.0);
-        let mut c = mix(pal.bg[0], pal.bg[1], t);
+        let mut c = pal.fill;
         if -d <= border_w {
             c = mix(c, pal.border, pal.border_alpha);
         }
-        return (pal.bg_alpha, c);
+        return (pal.fill_alpha, c);
     }
-    // 卡片之外：向下偏移的柔和投影
-    let shadow_dy = (x1 - x0) * 0.03;
-    let sd = round_rect_sdf(x, y - shadow_dy, x0, x1, radius);
-    if sd <= 0.0 {
+    // 卡片之外：向下偏移的柔和投影（Apple 产品阴影的比例，等比缩到 56px 的卡片上）
+    let card = x1 - x0;
+    let sd = round_rect_sdf(x, y - card * 0.07, x0, x1, radius);
+    let blur = card * pal.shadow_blur;
+    if sd >= blur {
         return (0.0, [0.0; 3]);
     }
-    let blur = (x1 - x0) * 0.06;
-    let alpha = pal.shadow_alpha * (1.0 - (sd / blur).clamp(0.0, 1.0));
+    let t = 1.0 - (sd / blur).clamp(0.0, 1.0);
+    let alpha = pal.shadow_alpha * (t * t * (3.0 - 2.0 * t)); // smoothstep：边缘更柔
     (alpha, [0.0, 0.0, 0.0])
 }
 
@@ -470,7 +568,7 @@ fn text_mask(chinese: bool, card: i32) -> Vec<u8> {
     let (face, em_ratio, glyph) = if chinese {
         ("Microsoft YaHei UI", 0.60, "中")
     } else {
-        ("Segoe UI", 0.86, "en")
+        ("Segoe UI", 0.78, "en")
     };
     let em = (size as f32 * em_ratio).round().max(6.0) as i32;
 
@@ -718,25 +816,15 @@ mod tests {
 
     #[test]
     fn places_below_right_of_anchor() {
-        let p = place(POINT { x: 500, y: 400 }, 106, 18, work());
-        assert_eq!((p.x, p.y), (518, 418));
+        let p = place(POINT { x: 500, y: 400 }, 90, 12, work());
+        assert_eq!((p.x, p.y), (512, 412));
     }
 
     #[test]
     fn flips_left_and_up_near_edges() {
-        let p = place(POINT { x: 1900, y: 1030 }, 106, 18, work());
-        assert!(
-            p.x + 106 <= 1920,
-            "右边贴边时应翻到左侧：({}, {})",
-            p.x,
-            p.y
-        );
-        assert!(
-            p.y + 106 <= 1040,
-            "下边贴边时应翻到上方：({}, {})",
-            p.x,
-            p.y
-        );
+        let p = place(POINT { x: 1900, y: 1030 }, 90, 12, work());
+        assert!(p.x + 90 <= 1920, "右边贴边时应翻到左侧：({}, {})", p.x, p.y);
+        assert!(p.y + 90 <= 1040, "下边贴边时应翻到上方：({}, {})", p.x, p.y);
         assert!(p.x >= 0 && p.y >= 0);
     }
 
@@ -748,16 +836,16 @@ mod tests {
             right: 500,
             bottom: 400,
         };
-        let p = place(POINT { x: 120, y: 60 }, 106, 18, w);
+        let p = place(POINT { x: 120, y: 60 }, 90, 12, w);
         assert!(p.x >= 100 && p.y >= 50);
-        assert!(p.x + 106 <= 500 && p.y + 106 <= 400);
+        assert!(p.x + 90 <= 500 && p.y + 90 <= 400);
     }
 
     #[test]
     fn scales_with_dpi() {
-        assert_eq!(scale(88, 96), 88);
-        assert_eq!(scale(88, 144), 132);
-        assert_eq!(scale(88, 192), 176);
+        assert_eq!(scale(56, 96), 56);
+        assert_eq!(scale(56, 144), 84);
+        assert_eq!(scale(56, 192), 112);
     }
 
     #[test]
@@ -779,8 +867,8 @@ mod tests {
 
     #[test]
     fn card_has_premultiplied_alpha() {
-        let (pixels, side) = render_card(true, 88, false);
-        assert_eq!(side, 88 + (88f32 * SHADOW_MARGIN).round() as i32 * 2);
+        let (pixels, side) = render_card(true, 56, false);
+        assert_eq!(side, 56 + (56f32 * SHADOW_MARGIN).round() as i32 * 2);
         assert_eq!(pixels.len(), (side * side * 4) as usize);
         let i = ((side / 2) * side + side / 2) as usize * 4;
         assert!(pixels[i + 3] > 200, "卡片中心应不透明");
@@ -795,15 +883,46 @@ mod tests {
 
     #[test]
     fn chinese_and_english_cards_differ() {
-        let (cn, _) = render_card(true, 88, false);
-        let (en, _) = render_card(false, 88, false);
+        let (cn, _) = render_card(true, 56, false);
+        let (en, _) = render_card(false, 56, false);
         assert_ne!(cn, en, "「中」与「en」的卡片必须不同");
     }
 
     #[test]
     fn light_and_dark_cards_differ() {
-        let (dark, _) = render_card(true, 88, false);
-        let (light, _) = render_card(true, 88, true);
+        let (dark, _) = render_card(true, 56, false);
+        let (light, _) = render_card(true, 56, true);
         assert_ne!(dark, light, "亮/暗主题的卡片必须不同");
+    }
+
+    #[test]
+    fn dark_card_is_not_near_black() {
+        // 早先的暗色卡片用了 #0f1014，浮在深色界面上像一块黑斑——回归测试这条。
+        // 取卡片内部（避开发丝线）不透明像素的中位数：中位数必然是卡面、不会落在字形上
+        let card = 56i32;
+        let (pixels, side) = render_card(true, card, false);
+        let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
+        let mut channels: Vec<Vec<u8>> = vec![Vec::new(); 3];
+        for y in (margin + 2)..(margin + card - 2) {
+            for x in (margin + 2)..(margin + card - 2) {
+                let i = ((y * side + x) * 4) as usize;
+                let alpha = pixels[i + 3] as u32;
+                if alpha < 240 {
+                    continue;
+                }
+                for (c, out) in channels.iter_mut().enumerate() {
+                    out.push(((pixels[i + c] as u32 * 255 + alpha / 2) / alpha).min(255) as u8);
+                }
+            }
+        }
+        assert!(!channels[0].is_empty(), "卡片内部应有像素");
+        for (c, values) in channels.iter_mut().enumerate() {
+            values.sort_unstable();
+            let median = values[values.len() / 2];
+            assert!(
+                median >= 40,
+                "暗色卡面（通道 {c}）应明显亮于近黑，实际 {median}"
+            );
+        }
     }
 }

@@ -12,7 +12,9 @@ use windows_sys::Win32::System::Threading::{
     OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
-use windows_sys::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetWindowThreadProcessId};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    GetClassNameW, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
+};
 
 /// 转成以 NUL 结尾的 UTF-16，供 Win32 W 系列 API 使用。
 pub fn wide(s: &str) -> Vec<u16> {
@@ -62,6 +64,24 @@ pub(crate) fn hwnd_exe(hwnd: HWND) -> Option<String> {
             .unwrap_or(path.as_str())
             .to_string(),
     )
+}
+
+/// 前台窗口的三个名字：标题、类名、进程可执行文件名（探针与诊断用）。
+///
+/// 不暴露带 `HWND` 参数的公开函数，避免把裸指针解引用的责任推给调用方。
+pub fn foreground_window_names() -> Option<(String, String, Option<String>)> {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_null() {
+        return None;
+    }
+    let mut buf = [0u16; 256];
+    let n = unsafe { GetWindowTextW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+    let title = if n > 0 {
+        String::from_utf16_lossy(&buf[..n as usize])
+    } else {
+        String::new()
+    };
+    Some((title, hwnd_class(hwnd), hwnd_exe(hwnd)))
 }
 
 /// GUI 子系统进程默认没有控制台；从终端启动时把父控制台接上。

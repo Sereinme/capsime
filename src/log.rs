@@ -41,9 +41,14 @@ pub fn error(msg: &str) {
 }
 
 pub fn debug(msg: &str) {
-    if std::env::var_os("CAPSIME_DEBUG").is_some() {
+    if debug_enabled() {
         write("DEBUG", msg);
     }
+}
+
+/// 诊断日志是否开启（`CAPSIME_DEBUG`）——调用方据此跳过昂贵的诊断计算。
+pub fn debug_enabled() -> bool {
+    std::env::var_os("CAPSIME_DEBUG").is_some()
 }
 
 fn write(level: &str, msg: &str) {
