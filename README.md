@@ -179,7 +179,7 @@ src/
 examples/
   icon_preview.rs  托盘图标验收图生成
   ime_probe.rs     输入法切换排查工具（环境检查 / 逐条路径实测 / 真实记事本验证）
-assets/icon/       图标设计稿（SVG）与预览图
+assets/icon/       图标设计稿（SVG）、预览图、仓库社交预览卡片与头像图
 docs/              设计与实现笔记
 ```
 

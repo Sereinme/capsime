@@ -194,7 +194,7 @@ src/
 examples/
   icon_preview.rs  tray icon review sheet
   ime_probe.rs     IME switching diagnostics (also verifies in a real Notepad)
-assets/icon/       icon design (SVG) and previews
+assets/icon/       icon design (SVG), previews, repo social-preview card and avatar
 docs/              design and implementation notes
 ```
 
