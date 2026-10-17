@@ -143,8 +143,8 @@ capsime 于是走一条四级阶梯，前两级是"插入点"，后两级是兜�
 
 ```
 DEBUG UIA 输入位置：（1157, 1009）（耗时 14 ms，焦点控件 Document（50030））
-DEBUG 指示器：锚点来自插入点（1157,1009)，DPI 144，卡片 54px 放在 (1175,1027)
-DEBUG 指示器：锚点来自输入框位置（UIA）（4272,2408)，DPI 120，卡片 45px 放在 (4287,2293)
+DEBUG 指示器：锚点来自插入点（1157,1009)，DPI 144，卡片 30px 放在 (1165,1017)
+DEBUG 指示器：锚点来自鼠标位置（4775,1515)，DPI 120，卡片 25px 放在 (4781,1521)
 ```
 
 本机实测清单（`cargo run --example caret_probe` 可复现）：
@@ -174,7 +174,7 @@ Windows SDK 10.0.16299 的 `um/UIAutomationClient.h`**（脚本按 Vtbl 结构�
 ink `#1d1d1f`，暗色用系统灰 `#3a3a3c`（**刻意不用近黑**：早先用 `#0f1014` 时卡片浮在
 深色界面上会糊成一团黑块，macOS 自己的 HUD 材质在暗色下同样取系统灰）。
 
-- 卡片 **36 逻辑像素**（150% 缩放下 54px、125% 下 45px），形状是**超椭圆**（Apple 式连续
+- 卡片 **20 逻辑像素**（150% 缩放下 30px、125% 下 25px，偏移 5），形状是**超椭圆**（Apple 式连续
   圆角方砖，`|u|⁴ + |v|⁴ = 1`），按锚点所在显示器的 DPI 现画；
 - 窗口：`WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，
   用 `SetWindowPos(..., SWP_NOACTIVATE | SWP_SHOWWINDOW)` 显示——**逐像素透明、点击穿透、

@@ -2,7 +2,7 @@
 //!
 //! ## 为什么用「分层窗口 + 自绘」而不是 GUI 框架
 //!
-//! 这个提示只需要"一块 36×36、会自己消失的卡片"，但要求很硬：**逐像素透明、点击穿透、
+//! 这个提示只需要"一块 20×20、会自己消失的卡片"，但要求很硬：**逐像素透明、点击穿透、
 //! 绝不抢焦点**（抢焦点会让 IME 候选窗弹错位置）。原生分层窗口（`WS_EX_LAYERED` +
 //! `UpdateLayeredWindow`）正好把这三点直接给到；egui/Slint 这类框架要额外引入数 MB
 //! 依赖和 GPU 后端，还得跟框架搏斗才能做到不激活、逐像素透明——不划算。
@@ -87,8 +87,8 @@ const FADE_OUT_FRAMES: u32 = 4;
 const TOTAL_FRAMES: u32 = FADE_IN_FRAMES + HOLD_FRAMES + FADE_OUT_FRAMES;
 
 /// 卡片设计尺寸（100% DPI 下的逻辑像素）、相对锚点的偏移与阴影留白比例。
-const CARD_LOGICAL: i32 = 36;
-const OFFSET_LOGICAL: i32 = 10;
+const CARD_LOGICAL: i32 = 20;
+const OFFSET_LOGICAL: i32 = 5;
 const SHADOW_MARGIN: f32 = 0.34;
 /// 插入点的合理性上限（像素）：超过即认为程序填的不是屏幕坐标。
 const CARET_MAX_PX: i32 = 200;
@@ -823,15 +823,15 @@ mod tests {
 
     #[test]
     fn places_below_right_of_anchor() {
-        let p = place(POINT { x: 500, y: 400 }, 68, 10, work());
-        assert_eq!((p.x, p.y), (510, 410));
+        let p = place(POINT { x: 500, y: 400 }, 34, 5, work());
+        assert_eq!((p.x, p.y), (505, 405));
     }
 
     #[test]
     fn flips_left_and_up_near_edges() {
-        let p = place(POINT { x: 1900, y: 1030 }, 68, 10, work());
-        assert!(p.x + 68 <= 1920, "右边贴边时应翻到左侧：({}, {})", p.x, p.y);
-        assert!(p.y + 68 <= 1040, "下边贴边时应翻到上方：({}, {})", p.x, p.y);
+        let p = place(POINT { x: 1900, y: 1030 }, 34, 5, work());
+        assert!(p.x + 34 <= 1920, "右边贴边时应翻到左侧：({}, {})", p.x, p.y);
+        assert!(p.y + 34 <= 1040, "下边贴边时应翻到上方：({}, {})", p.x, p.y);
         assert!(p.x >= 0 && p.y >= 0);
     }
 
@@ -843,23 +843,23 @@ mod tests {
             right: 500,
             bottom: 400,
         };
-        let p = place(POINT { x: 120, y: 60 }, 68, 10, w);
+        let p = place(POINT { x: 120, y: 60 }, 34, 5, w);
         assert!(p.x >= 100 && p.y >= 50);
-        assert!(p.x + 68 <= 500 && p.y + 68 <= 400);
+        assert!(p.x + 34 <= 500 && p.y + 34 <= 400);
     }
 
     #[test]
     fn scales_with_dpi() {
-        assert_eq!(scale(36, 96), 36);
-        assert_eq!(scale(36, 144), 54);
-        assert_eq!(scale(36, 192), 72);
+        assert_eq!(scale(20, 96), 20);
+        assert_eq!(scale(20, 144), 30);
+        assert_eq!(scale(20, 192), 40);
     }
 
     #[test]
     fn squircle_is_rounder_than_a_square() {
         // 边长 40、中心 20、半边长 20：对角线方向在 0.83×半边长处仍在形状内，
         // 0.87 处已经出界（纯方砖要走到 1.0 才出界）——这就是连续圆角的手感
-        let (center, half) = (18.0f32, 18.0f32);
+        let (center, half) = (10.0f32, 10.0f32);
         assert!(squircle_f(center - 0.83 * half, center - 0.83 * half, center, half) < 1.0);
         assert!(squircle_f(center - 0.87 * half, center - 0.87 * half, center, half) > 1.0);
         // 边的中点恰好落在边界上
@@ -885,8 +885,8 @@ mod tests {
 
     #[test]
     fn card_has_premultiplied_alpha() {
-        let (pixels, side) = render_card(true, 36, false);
-        assert_eq!(side, 36 + (36f32 * SHADOW_MARGIN).round() as i32 * 2);
+        let (pixels, side) = render_card(true, 20, false);
+        assert_eq!(side, 20 + (20f32 * SHADOW_MARGIN).round() as i32 * 2);
         assert_eq!(pixels.len(), (side * side * 4) as usize);
         let i = ((side / 2) * side + side / 2) as usize * 4;
         assert!(pixels[i + 3] > 200, "卡片中心应不透明");
@@ -901,15 +901,15 @@ mod tests {
 
     #[test]
     fn chinese_and_english_cards_differ() {
-        let (cn, _) = render_card(true, 36, false);
-        let (en, _) = render_card(false, 36, false);
+        let (cn, _) = render_card(true, 20, false);
+        let (en, _) = render_card(false, 20, false);
         assert_ne!(cn, en, "「中」与「en」的卡片必须不同");
     }
 
     #[test]
     fn light_and_dark_cards_differ() {
-        let (dark, _) = render_card(true, 36, false);
-        let (light, _) = render_card(true, 36, true);
+        let (dark, _) = render_card(true, 20, false);
+        let (light, _) = render_card(true, 20, true);
         assert_ne!(dark, light, "亮/暗主题的卡片必须不同");
     }
 
@@ -917,7 +917,7 @@ mod tests {
     fn dark_card_is_not_near_black() {
         // 早先的暗色卡片用了 #0f1014，浮在深色界面上像一块黑斑——回归测试这条。
         // 取卡片内部（避开发丝线）不透明像素的中位数：中位数必然是卡面、不会落在字形上
-        let card = 36i32;
+        let card = 20i32;
         let (pixels, side) = render_card(true, card, false);
         let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
         let mut channels: Vec<Vec<u8>> = vec![Vec::new(); 3];

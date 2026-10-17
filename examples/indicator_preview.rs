@@ -15,7 +15,7 @@ const BG_LIGHT: [u8; 3] = [244, 245, 247];
 
 /// 预览放大倍数；尺寸阶梯（100% DPI 的卡片边长，实际也会按所在显示器 DPI 缩放）。
 const SCALE: u32 = 3;
-const SIZES: [i32; 4] = [32, 36, 40, 44];
+const SIZES: [i32; 4] = [20, 24, 28, 36];
 /// 与 indicator.rs 的 SHADOW_MARGIN 一致（算格子大小时要算上阴影留白）。
 const SHADOW_MARGIN: f32 = 0.34;
 
