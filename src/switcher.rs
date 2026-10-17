@@ -106,6 +106,22 @@ impl SwitchResult {
     }
 }
 
+/// 读一次前台窗口当前是否中文态（读不到返回 None）。
+///
+/// 给启动时同步托盘图标用：现代程序（TSF 输入法）读不回来，此时返回 None。
+pub fn read_current() -> Option<bool> {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_null() {
+        return None;
+    }
+    read_state_of(hwnd)
+}
+
+/// 读某个窗口当前是否中文态（IMM 优先，其次默认 IME 窗口）。
+fn read_state_of(hwnd: HWND) -> Option<bool> {
+    imm_state(hwnd).or_else(|| ime_wnd_state(hwnd))
+}
+
 /// 对前台窗口执行一次"中英文切换"。
 pub fn toggle() -> SwitchResult {
     let hwnd = unsafe { GetForegroundWindow() };

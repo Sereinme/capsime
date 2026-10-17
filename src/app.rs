@@ -5,8 +5,13 @@
 //!   回调里只投递 `WM_SWITCH`，保证足够快。
 //! - **工作线程**：自己的消息循环，收到 `WM_SWITCH` 后执行 IMM 等可能阻塞的
 //!   Win32 调用，前台程序卡死也不会拖累钩子线程。
+//!
+//! 托盘图标要跟随系统亮/暗模式，所以主线程还需要一个**隐藏的顶层窗口**：
+//! 系统切换模式时会广播 `WM_SETTINGCHANGE`，只有顶层窗口收得到（消息窗口收不到），
+//! 收到后重读主题并换图标。
 
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
@@ -17,15 +22,18 @@ use windows_sys::Win32::System::Threading::{CreateMutexW, GetCurrentThreadId};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, MSG,
     MessageBoxW, PostMessageW, PostQuitMessage, PostThreadMessageW, RegisterClassW,
-    TranslateMessage, WNDCLASSW,
+    TranslateMessage, WM_SETTINGCHANGE, WNDCLASSW,
 };
 
-use crate::{hook, log, switcher, tray, util};
+use crate::{hook, log, switcher, theme, tray, util};
 
 const WM_QUIT: u32 = 0x0012;
 const MB_OK: u32 = 0x0000;
 const MB_ICONERROR: u32 = 0x0000_0010;
 const MB_SETFOREGROUND: u32 = 0x0001_0000;
+
+/// 主线程那个隐藏顶层窗口的句柄（退出时销毁，也便于将来扩展通知）。
+static MAIN_WINDOW: AtomicIsize = AtomicIsize::new(0);
 
 /// 正常启动：托盘常驻。
 pub fn run() -> i32 {
@@ -55,18 +63,40 @@ pub fn run() -> i32 {
     }
     log::info("键盘钩子已安装");
 
+    // 隐藏的顶层窗口：接收系统的主题变更广播
+    let main_window = match create_hidden_window("capsime_main_wnd") {
+        Ok(h) => h,
+        Err(code) => {
+            log::warn(&format!(
+                "创建主窗口失败（错误码 {code}），主题不会自动跟随"
+            ));
+            0 as HWND
+        }
+    };
+    MAIN_WINDOW.store(main_window as isize, Ordering::SeqCst);
+
     if let Err(e) = tray::init() {
         log::error(&format!("创建托盘图标失败：{e}"));
         hook::uninstall();
         fatal_box("capsime 启动失败", &format!("创建托盘图标失败：{e}"));
         return 1;
     }
-    log::info("托盘已就绪，等待 CapsLock");
+    log::info(&format!(
+        "托盘已就绪（图标跟随系统{}模式，等待 CapsLock）",
+        if theme::is_light() {
+            "亮色"
+        } else {
+            "暗色"
+        }
+    ));
 
     message_loop();
 
     hook::uninstall();
     stop_worker(worker.tid);
+    if !main_window.is_null() {
+        unsafe { DestroyWindow(main_window) };
+    }
     log::info("capsime 已退出");
     0
 }
@@ -277,7 +307,59 @@ unsafe extern "system" fn wnd_proc(
     wparam: WPARAM,
     lparam: LPARAM,
 ) -> LRESULT {
-    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+    unsafe {
+        // 系统主题/个性化设置变了：重读一次应用模式，需要就换图标。
+        // 广播的 lParam 是发送方进程里的字符串指针，跨进程不能解引用，
+        // 所以不做内容判断，直接重读注册表（很便宜）。
+        if msg == WM_SETTINGCHANGE {
+            tray::refresh_theme();
+        }
+        DefWindowProcW(hwnd, msg, wparam, lparam)
+    }
+}
+
+/// 隐藏的顶层窗口：只为收系统的 `WM_SETTINGCHANGE` 广播（消息窗口收不到广播）。
+fn create_hidden_window(class_name: &str) -> Result<HWND, u32> {
+    unsafe {
+        let hinst = GetModuleHandleW(std::ptr::null());
+        let class_name_w = util::wide(class_name);
+        let title_w = util::wide("capsime");
+
+        let class = WNDCLASSW {
+            style: 0,
+            lpfnWndProc: Some(wnd_proc),
+            cbClsExtra: 0,
+            cbWndExtra: 0,
+            hInstance: hinst,
+            hIcon: std::ptr::null_mut(),
+            hCursor: std::ptr::null_mut(),
+            hbrBackground: std::ptr::null_mut(),
+            lpszMenuName: std::ptr::null(),
+            lpszClassName: class_name_w.as_ptr(),
+        };
+        RegisterClassW(&class);
+
+        // 顶层、不可见、零尺寸：不进任务栏，也不显示任何东西
+        let hwnd = CreateWindowExW(
+            0,
+            class_name_w.as_ptr(),
+            title_w.as_ptr(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            hinst,
+            std::ptr::null(),
+        );
+        if hwnd.is_null() {
+            Err(util::last_error())
+        } else {
+            Ok(hwnd)
+        }
+    }
 }
 
 fn acquire_single_instance() -> bool {

@@ -17,10 +17,13 @@
 
 ## 使用
 
-1. 运行 `capsime.exe`，托盘出现蓝色「中」图标。
+1. 运行 `capsime.exe`，托盘出现一枚**圆角方形图标**，上面是字母 **C**（CapsLock 的 C）：
+   圆环主体是几何的，右下扫出一笔**朱砂色**的书法收锋。配色与阴影参考 Apple 的图标语言，
+   并且**跟随系统的亮/暗模式自动切换**（纸白底墨 C / 靛蓝底白 C）。
 2. 在任意程序里按一下 **CapsLock**，中英文来回切换。
 3. 右键托盘图标：
-   - **启用大写键切换**：临时暂停/恢复拦截（暂停后 CapsLock 恢复原生大写锁功能，图标变灰）。
+   - **启用大写键切换**：临时暂停/恢复拦截（暂停后 CapsLock 恢复原生大写锁功能，
+     整套图标转冷灰）。
    - **开机自动启动**：写/删注册表 `HKCU\...\CurrentVersion\Run`，只影响当前用户。
    - **查看日志**：打开 `%LOCALAPPDATA%\capsime\capsime.log`。
    - **退出**：卸载钩子后退出。
@@ -61,6 +64,19 @@ CapsLock 按下
 ```
 
 "中文态"的判定：IME 处于打开状态 **且** 转换模式带 `IME_CMODE_NATIVE` 位。
+
+### 托盘图标："变形 C" + 亮暗主题
+
+图标是字母 **C**（CapsLock 的 C）：圆环主体是几何的，环的下端顺势扫出一笔由粗到细的
+**朱砂收锋**（传统印泥色 = 中文书写的意象），一个字形里"几何 + 墨"并置。
+材质参考 Apple 应用图标：超椭圆 squircle 底、竖向渐变 + 顶部径向柔光、顶缘高光、
+图形底下压一层偏移的深色副本当柔和投影。
+
+- **主题**：主线程有一个**隐藏的顶层窗口**（消息窗口收不到系统广播），
+  系统切换亮/暗模式时会广播 `WM_SETTINGCHANGE`，收到后重读
+  `HKCU\...\Themes\Personalize\AppsUseLightTheme` 并换图标——亮色是纸白底墨 C，
+  暗色是靛蓝底白 C，朱砂收锋两侧都用。事件驱动，不轮询。
+- **暂停**：托盘菜单暂停拦截时整套转冷灰，形状不变。
 
 ### 为什么要靠"注入切换键"，而不是直接设置 IME 状态
 
@@ -139,7 +155,7 @@ cargo build --release
 cargo fmt
 cargo clippy
 cargo test
-cargo run --example icon_preview   # 生成托盘图标预览图到 target/icon_preview.png
+cargo run --example icon_preview   # 托盘图标验收图：尺寸 × 启用/暂停 × 亮/暗
 cargo run --example ime_probe             # 输入法切换排查：环境 + 逐条路径实测
 cargo run --example ime_probe -- --notepad # 真实记事本里验证"打字结果"，最可信
 cargo run --example ime_probe -- --e2e     # 对着另一个真实进程验证切换链路
@@ -156,12 +172,15 @@ src/
   switcher.rs   中英文切换：读状态 + 注入切换键 + 逐级兜底与核对（含单元测试）
   tray.rs       托盘图标与菜单
   autostart.rs  开机自启（HKCU Run 项，含单元测试）
-  icon.rs       纯代码绘制的托盘图标（含单元测试）
+  icon.rs       托盘图标：变形 C（几何圆环 + 朱砂收锋），跟随亮/暗主题（含单元测试）
+theme.rs      系统亮/暗模式检测（读 AppsUseLightTheme）
   log.rs        极简文件日志（512KB 轮转）
   util.rs       Win32 小工具（含单元测试）
 examples/
-  icon_preview.rs  托盘图标预览图生成
+  icon_preview.rs  托盘图标验收图生成（尺寸 × 状态 × 任务栏底色）
   ime_probe.rs     输入法切换排查工具（环境检查 / 逐条路径实测 / 跨进程验证）
+assets/
+  icon/capsime-icon.svg  图标设计稿（512 单位；可在 VectorCraft / Inkscape 里继续编辑）
 ```
 
 ## 路线图

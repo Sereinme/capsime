@@ -14,5 +14,6 @@ pub mod hook;
 pub mod icon;
 pub mod log;
 pub mod switcher;
+pub mod theme;
 pub mod tray;
 pub mod util;
