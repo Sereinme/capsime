@@ -73,7 +73,10 @@ jobs:
           $range = if ($prev) { "$prev..$tag" } else { $tag }
           $log = (git log $range --pretty=format:"- %s ([%h](https://github.com/$repo/commit/%H))") -join "`n"
 
-          # 带注释 tag 的说明放在最前面（第一个 tag 没有就跳过）
+          # 带注释 tag 的说明放在最前面（第一个 tag 没有就跳过）。
+          # 注意：actions/checkout 会把 tag ref 变成指向提交的轻量 ref（这样 %(contents)
+          # 会读到提交说明而不是 tag 说明），所以先把它恢复成带注释的 tag 再读。
+          git fetch --force --no-tags origin "refs/tags/$tag:refs/tags/$tag" 2>$null | Out-Null
           $tagMsg = (git tag -l --format="%(contents)" $tag | Out-String).Trim()
 
           $parts = New-Object System.Collections.Generic.List[string]

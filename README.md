@@ -9,7 +9,7 @@
   <a href="https://github.com/Sereinme/capsime/blob/master/LICENSE"><img alt="license" src="https://img.shields.io/github/license/Sereinme/capsime?style=flat-square"></a>
   <a href="#"><img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6?style=flat-square"></a>
   <a href="#"><img alt="rust" src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square"></a>
-  <a href="#"><img alt="size" src="https://img.shields.io/badge/exe-~465%20KB-6272A4?style=flat-square"></a>
+  <a href="#"><img alt="size" src="https://img.shields.io/badge/exe-~335%20KB-6272A4?style=flat-square"></a>
 </div>
 
 CapsLock 常年吃灰。capsime 把它变成中英文切换键：**按一下切换到另一种输入状态，
@@ -24,7 +24,7 @@ CapsLock 常年吃灰。capsime 把它变成中英文切换键：**按一下切�
 - 💬 **切换时给个提示** —— 在插入点/输入框旁边弹出 **Apple 系统蓝**的「中 / en」小卡片（白字，亮/暗模式各一档色深），约 0.7 秒淡出；
   拿不到插入点就退到输入框外框、再退到鼠标位置；亮/暗模式下自动调整描边与投影，可在托盘菜单关掉
 - 🎨 **会看眼色的托盘图标** —— 几何圆环 + 一笔朱砂收锋的「C」，跟随系统亮/暗模式自动换色（右键菜单也跟着变深/浅），暂停时转冷灰
-- 🪶 **轻量** —— 单文件 exe 约 465 KB；空闲工作集约 11 MB、私有内存 1.6 MB
+- 🪶 **轻量** —— 单文件 exe 约 335 KB；空闲工作集约 11 MB、私有内存 1.6 MB
 - 🍃 **零轮询** —— 钩子回调只投递一次消息；空闲 CPU 实测 15 秒内增长 0 ms
 - 🔍 **可排查** —— 每次切换记录方式/状态/是否核对/前台程序；自带 `--selftest` 与 `ime_probe` 探针
 - 🧩 **无第三方服务** —— 不联网、无遥测、无管理员权限、不注入其他进程
@@ -46,7 +46,7 @@ cd capsime
 cargo build --release        # 产物：target\release\capsime.exe
 ```
 
-需要 Rust 1.85+（MSVC 或 GNU 工具链均可）。发布构建带 LTO + strip，约 465 KB。
+需要 Rust 1.85+（MSVC 或 GNU 工具链均可）。发布构建带 LTO + strip；CI（MSVC）产物约 335 KB，本机 GNU 工具链构建略大。
 
 ## 使用
 
@@ -167,7 +167,7 @@ Windows 没有这个统一契约。走了哪一级会写进日志（用 `CAPSIME
 | 每次切换 CPU | 约 1 ms（含写日志与 UIA 查询） |
 | 连按 100 次后 | 工作集/私有内存/句柄/线程数完全不变（无泄漏） |
 | 启动到托盘就绪 | < 1 s |
-| release 体积 | 475,648 字节（≈465 KB，LTO + strip，含 UIA 客户端） |
+| release 体积 | 343,040 字节（≈335 KB，LTO + strip，CI 的 MSVC 构建） |
 
 钩子回调只做"是不是 CapsLock + 有没有修饰键"的判断和一次 `PostMessage`，
 普通按键只是两次原子读加一个整数比较，因此全局打字速度不受影响，
