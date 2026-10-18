@@ -30,11 +30,12 @@
 //!
 //! ## 卡片外观
 //!
-//! 卡面用**亮橙**（`#FF6A00`）+ 近黑字；其余照 Apple 的公开设计系统：**没有装饰性
-//! 渐变**——纯色卡面 + 1px 发丝线 + 一道柔和投影，形状是超椭圆（Apple 式连续圆角方砖）。
-//! 颜色是按"在浅色/深色内容上都显眼"挑的（见 [`ACCENT`] 的对比度表）：白/灰太淡、
-//! 克莱因蓝在深色界面上只有 1.5:1、纯黄在浅色页面上又发白，橙色是唯一两边都够醒目的
-//! 一档。亮/暗主题只体现在发丝线、上缘高光与投影强度上。
+//! 卡面是**朱砂橙 + 白色字形**，两套主题各一档色深：亮色用深朱砂 `#C2410C`（在白页上
+//! 4.7:1、白字 5.2:1），暗色用亮橙 `#EA580C`（在深色内容上 4.7:1、白字 3.6:1）。
+//! 单一颜色被证明两头不讨好：白/灰在浅色页面看不见，克莱因蓝在深色界面只有 1.5:1，
+//! 纯黄在浅色页面发白；而白字又要求卡面足够深。其余照 Apple 的公开设计系统：
+//! **没有装饰性渐变**——纯色卡面 + 1px 发丝线 + 一道柔和投影，形状是超椭圆
+//! （Apple 式连续圆角方砖）。
 //!
 //! ## 线程与消息
 //!
@@ -442,43 +443,43 @@ const SQUIRCLE_N: f32 = 4.0;
 /// 投影相对卡片边长的下移量。
 const SHADOW_DY: f32 = 0.06;
 
-/// 卡面强调色：**亮橙** `#FF6A00`，配近黑字。
+/// 卡面强调色：两种主题各一档，都配**白色字形**（和托盘图标的朱砂色同族）。
 ///
-/// 选色标准是"在浅色和深色内容上都显眼"，用相对亮度（Y）和对比度量过：
+/// 白字要求卡面够深，而"在深色内容上显眼"又要求卡面够亮，单一颜色两头不讨好，
+/// 所以按主题各优化一头（相对亮度 Y、白色字形对比度、对内容的对比度）：
 ///
-/// | 颜色 | Y | 对深色底 | 对浅色底 |
-/// | --- | --- | --- | --- |
-/// | 克莱因蓝 `#002FA7` | 0.05 | **1.5:1**（沉进深色界面） | 9.8:1 |
-/// | 亮橙 `#FF6A00` | 0.32 | 5.6:1 | 2.6:1 |
-/// | 琥珀 `#FFB300` | 0.54 | 8.9:1 | 1.7:1（浅色页面上发白） |
-/// | 纯黄 `#FFD60A` | 0.69 | 11.3:1 | 1.3:1（几乎看不见） |
+/// | 主题 | 卡面 | Y | 白字 | 对浅色内容 | 对深色内容 |
+/// | --- | --- | --- | --- | --- | --- |
+/// | 亮色 | `#C2410C` 深朱砂 | 0.15 | 5.1:1 | 5.4:1 | 3.6:1 |
+/// | 暗色 | `#EA580C` 亮橙 | 0.25 | 3.5:1（粗体大字） | 3.2:1 | 4.4:1 |
 ///
-/// 橙色是唯一两边都压得住的一档，还带很强的彩度；近黑字对橙面有 7.3:1，
-/// 比白字（2.9:1）清楚得多，所以字形用 ink。
-const ACCENT: [f32; 3] = [255.0, 106.0, 0.0];
+/// 蓝/紫这类低亮度色在深色界面上只有 1.5~2.8:1（克莱因蓝的教训），白字也会发虚，
+/// 所以卡面固定在"中间偏暗 + 高彩度"的橙色带里。
+const ACCENT_LIGHT: [f32; 3] = [194.0, 65.0, 12.0];
+const ACCENT_DARK: [f32; 3] = [234.0, 88.0, 12.0];
 
 fn palette(light: bool) -> CardPalette {
     if light {
         CardPalette {
-            fill: ACCENT,
+            fill: ACCENT_LIGHT,
             fill_alpha: 0.97,
             border: [0.0, 0.0, 0.0],
             border_alpha: 0.10,
             top_highlight: 0.0,
             shadow_alpha: 0.24,
             shadow_blur: 0.20,
-            text: [29.0, 29.0, 31.0],
+            text: [255.0, 255.0, 255.0],
         }
     } else {
         CardPalette {
-            fill: ACCENT,
+            fill: ACCENT_DARK,
             fill_alpha: 0.97,
             border: [255.0, 255.0, 255.0],
             border_alpha: 0.14,
             top_highlight: 0.08,
             shadow_alpha: 0.36,
             shadow_blur: 0.20,
-            text: [29.0, 29.0, 31.0],
+            text: [255.0, 255.0, 255.0],
         }
     }
 }
@@ -966,40 +967,46 @@ mod tests {
     }
 
     #[test]
-    fn card_face_is_conspicuous_on_both_backgrounds() {
-        // 卡面亮度要落在中间带（太低会沉进深色界面——克莱因蓝的教训；太高会在浅色页面
-        // 发白——纯黄的教训），同时要高饱和；取卡面中位像素来量
-        let card = 24i32;
-        let (pixels, side) = render_card(true, card, false);
-        let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
-        let mut channels: Vec<Vec<u8>> = vec![Vec::new(); 3];
-        for y in (margin + 2)..(margin + card - 2) {
-            for x in (margin + 2)..(margin + card - 2) {
-                let i = ((y * side + x) * 4) as usize;
-                let alpha = pixels[i + 3] as u32;
-                if alpha < 240 {
-                    continue;
-                }
-                for (c, out) in channels.iter_mut().enumerate() {
-                    out.push(((pixels[i + c] as u32 * 255 + alpha / 2) / alpha).min(255) as u8);
+    fn card_face_is_conspicuous_in_both_themes() {
+        // 两种主题的卡面都要满足：白字对比 ≥3:1（粗体大字），且对浅色页面与深色内容
+        // 的对比都不低于 2.8:1，同时保持高饱和。取卡面中位像素来量（避开字形与发丝线）。
+        for light in [true, false] {
+            let card = 24i32;
+            let (pixels, side) = render_card(true, card, light);
+            let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
+            let mut channels: Vec<Vec<u8>> = vec![Vec::new(); 3];
+            for y in (margin + 2)..(margin + card - 2) {
+                for x in (margin + 2)..(margin + card - 2) {
+                    let i = ((y * side + x) * 4) as usize;
+                    let alpha = pixels[i + 3] as u32;
+                    if alpha < 240 {
+                        continue;
+                    }
+                    for (c, out) in channels.iter_mut().enumerate() {
+                        out.push(((pixels[i + c] as u32 * 255 + alpha / 2) / alpha).min(255) as u8);
+                    }
                 }
             }
+            assert!(!channels[0].is_empty(), "卡片内部应有像素");
+            let mut median = [0u8; 3];
+            for (c, values) in channels.iter_mut().enumerate() {
+                values.sort_unstable();
+                median[c] = values[values.len() / 2];
+            }
+            let [b, g, r] = median; // 内存里是 BGRA
+            let lum = relative_luminance([r, g, b]);
+            let white_text = contrast(lum, 1.0);
+            assert!(
+                white_text >= 3.0,
+                "白字对比不足（light={light}）：{white_text:.1}:1（R{r} G{g} B{b}）"
+            );
+            for (name, bg) in [("浅色页面", 0.91f32), ("深色内容", 0.013f32)] {
+                let c = contrast(lum, bg);
+                assert!(c >= 2.8, "卡面对{name}对比不足（light={light}）：{c:.1}:1");
+            }
+            let chroma = r.max(g).max(b) as i32 - r.min(g).min(b) as i32;
+            assert!(chroma >= 100, "卡面应是高饱和色（彩度 {chroma}）");
         }
-        assert!(!channels[0].is_empty(), "卡片内部应有像素");
-        // 中位数必然是卡面、不会落在近黑字形上
-        let mut median = [0u8; 3];
-        for (c, values) in channels.iter_mut().enumerate() {
-            values.sort_unstable();
-            median[c] = values[values.len() / 2];
-        }
-        let [b, g, r] = median; // 内存里是 BGRA
-        let lum = relative_luminance([r, g, b]);
-        assert!(
-            (0.15..=0.55).contains(&lum),
-            "卡面亮度应落在中间带（实测 Y={lum:.2}，R{r} G{g} B{b}）"
-        );
-        let chroma = r.max(g).max(b) as i32 - r.min(g).min(b) as i32;
-        assert!(chroma >= 100, "卡面应是高饱和色（彩度 {chroma}）");
     }
 
     /// sRGB 相对亮度（WCAG）。
@@ -1013,6 +1020,12 @@ mod tests {
             }
         };
         0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
+    }
+
+    /// 两团相对亮度之间的对比度。
+    fn contrast(a: f32, b: f32) -> f32 {
+        let (hi, lo) = (a.max(b), a.min(b));
+        (hi + 0.05) / (lo + 0.05)
     }
 
     #[test]
