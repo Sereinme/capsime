@@ -30,10 +30,10 @@
 //!
 //! ## 卡片外观
 //!
-//! 照 Apple 的公开设计系统（`apple.md`）：**没有装饰性渐变**——纯色卡面 + 1px 发丝线 +
-//! 一道柔和投影，字重 600，形状是超椭圆（Apple 式连续圆角方砖）。亮色是白底 + ink `#1d1d1f`；暗色刻意
-//! 用系统灰 `#3a3a3c` 而不是近黑——近黑浮在深色界面上会糊成一团，这也是 macOS 的 HUD
-//! 材质在暗色下取系统灰的原因。
+//! 卡面用**克莱因蓝**（International Klein Blue，`#002FA7`）+ 白字；其余照 Apple 的
+//! 公开设计系统：**没有装饰性渐变**——纯色卡面 + 1px 发丝线 + 一道柔和投影，
+//! 形状是超椭圆（Apple 式连续圆角方砖）。亮/暗主题只体现在发丝线、上缘高光与投影
+//! 强度上；早先的白/系统灰卡面在内容上几乎"看不见"，所以改成这个高辨识度的蓝。
 //!
 //! ## 线程与消息
 //!
@@ -88,11 +88,11 @@ const TOTAL_FRAMES: u32 = FADE_IN_FRAMES + HOLD_FRAMES + FADE_OUT_FRAMES;
 
 /// 卡片设计尺寸（100% DPI 下的逻辑像素）、相对锚点的固定间距与阴影留白比例。
 const CARD_LOGICAL: i32 = 24;
-/// 卡片与锚点之间的间距：**固定物理像素，不随 DPI 缩放**。
+/// 卡片与锚点之间**看得见**的间距：固定物理像素，不随 DPI 缩放。
 ///
-/// 之前按 DPI 缩放时，同一个逻辑值在 150% 屏上是 8px、125% 屏上是 6px，两块屏摆
-/// 在一起看，2K 那块明显更大。这个间距是给眼睛的呼吸感，跨屏一致比"物理等比"更重要；
-/// 1px 发丝线与 1px 投影偏移同理。
+/// 注意窗口比卡片大一圈阴影留白（[`SHADOW_MARGIN`]，随 DPI 变大），摆放时要把留白
+/// 从偏移里扣掉（`place(anchor, side, OFFSET_PX - margin, ..)`），否则同一个逻辑偏移
+/// 在 150% 屏上看得见 18px、125% 屏上 16px，两块屏摆在一起 2K 那块明显更远。
 const OFFSET_PX: i32 = 6;
 const SHADOW_MARGIN: f32 = 0.34;
 /// 插入点的合理性上限（像素）：超过即认为程序填的不是屏幕坐标。
@@ -156,12 +156,13 @@ pub fn show(chinese: bool) {
     };
     let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96);
     let card = scale(CARD_LOGICAL, dpi);
-    let offset = OFFSET_PX;
     let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
     let side = card + margin * 2;
 
     let work = work_area(anchor);
-    let pos = place(anchor, side, offset, work);
+    // 阴影留白是窗口的一部分，而留白随 DPI 变大：把它从偏移里扣掉，
+    // 保证"看得见的间距"在任何 DPI 下都等于 OFFSET_PX（否则 150% 屏会比 125% 屏更远）
+    let pos = place(anchor, side, OFFSET_PX - margin, work);
     log::debug(&format!(
         "指示器：锚点来自{}（{},{})，DPI {dpi}，卡片 {card}px 放在 ({},{})",
         match source {
@@ -440,31 +441,32 @@ const SQUIRCLE_N: f32 = 4.0;
 /// 投影相对卡片边长的下移量。
 const SHADOW_DY: f32 = 0.06;
 
-/// 卡片配色跟随系统亮/暗，取值照 Apple 公开的设计系统：
-/// 亮色 = 白底 + 8% 黑发丝线 + ink `#1d1d1f`；暗色 = 系统灰 `#3a3a3c` + 白字。
+/// 卡片配色：**克莱因蓝**（International Klein Blue，`#002FA7`）作卡面、白字。
 ///
-/// 暗色**刻意不用近黑**（早先用 `#0f1014` 时，卡片浮在深色界面上会糊成一团黑块）——
-/// macOS 自己的 HUD 材质在暗色下同样取系统灰。
+/// 亮/暗主题只体现在发丝线、上缘高光与投影强度上——克莱因蓝在浅色和深色背景上
+/// 都足够醒目。早先的白/系统灰卡面在内容上几乎"看不见"，这正是换色的原因。
+const KLEIN_BLUE: [f32; 3] = [0.0, 47.0, 167.0];
+
 fn palette(light: bool) -> CardPalette {
     if light {
         CardPalette {
-            fill: [255.0, 255.0, 255.0],
+            fill: KLEIN_BLUE,
             fill_alpha: 0.97,
-            border: [0.0, 0.0, 0.0],
-            border_alpha: 0.08,
+            border: [255.0, 255.0, 255.0],
+            border_alpha: 0.12,
             top_highlight: 0.0,
-            shadow_alpha: 0.16,
+            shadow_alpha: 0.24,
             shadow_blur: 0.20,
-            text: [29.0, 29.0, 31.0],
+            text: [255.0, 255.0, 255.0],
         }
     } else {
         CardPalette {
-            fill: [58.0, 58.0, 60.0],
-            fill_alpha: 0.96,
+            fill: KLEIN_BLUE,
+            fill_alpha: 0.97,
             border: [255.0, 255.0, 255.0],
-            border_alpha: 0.14,
+            border_alpha: 0.16,
             top_highlight: 0.10,
-            shadow_alpha: 0.32,
+            shadow_alpha: 0.38,
             shadow_blur: 0.20,
             text: [255.0, 255.0, 255.0],
         }
@@ -954,9 +956,8 @@ mod tests {
     }
 
     #[test]
-    fn dark_card_is_not_near_black() {
-        // 早先的暗色卡片用了 #0f1014，浮在深色界面上像一块黑斑——回归测试这条。
-        // 取卡片内部（避开发丝线）不透明像素的中位数：中位数必然是卡面、不会落在字形上
+    fn card_face_is_klein_blue() {
+        // 卡面必须是克莱因蓝 #002FA7（B 远大于 G，G 大于 R），且不是近黑
         let card = 24i32;
         let (pixels, side) = render_card(true, card, false);
         let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
@@ -974,13 +975,31 @@ mod tests {
             }
         }
         assert!(!channels[0].is_empty(), "卡片内部应有像素");
+        // 中位数必然是卡面、不会落在白色字形上
+        let mut median = [0u8; 3];
         for (c, values) in channels.iter_mut().enumerate() {
             values.sort_unstable();
-            let median = values[values.len() / 2];
-            assert!(
-                median >= 40,
-                "暗色卡面（通道 {c}）应明显亮于近黑，实际 {median}"
-            );
+            median[c] = values[values.len() / 2];
+        }
+        let [b, g, r] = median; // 内存里是 BGRA
+        assert!(
+            b >= 140 && b > g && g > r,
+            "卡面应是克莱因蓝（实测 R{r} G{g} B{b}）"
+        );
+    }
+
+    #[test]
+    fn visible_gap_is_constant_across_dpi() {
+        // 窗口带着阴影留白；把留白从偏移里扣掉后，任何 DPI 下"看得见的间距"都等于 OFFSET_PX，
+        // 这样 150% 屏与 125% 屏摆在一起不会一大一小
+        for dpi in [96, 120, 144, 192] {
+            let card = scale(CARD_LOGICAL, dpi);
+            let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
+            let side = card + margin * 2;
+            let anchor = POINT { x: 1000, y: 700 };
+            let pos = place(anchor, side, OFFSET_PX - margin, work());
+            assert_eq!(pos.x + margin - anchor.x, OFFSET_PX, "DPI {dpi} 的横向间距");
+            assert_eq!(pos.y + margin - anchor.y, OFFSET_PX, "DPI {dpi} 的纵向间距");
         }
     }
 }
