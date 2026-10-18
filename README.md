@@ -222,6 +222,19 @@ docs/              设计与实现笔记
 逐像素透明、点击穿透、不抢焦点，文字交给 GDI + 系统字体。读 UI Automation 用的是手写的
 最小 COM 接口——它和托盘图标一样，**没有引入任何新依赖**。
 
+## 发布
+
+推一个带注释的 tag 即可，[release.yml](.github/workflows/release.yml) 会自动跑格式检查、
+clippy、单元测试、release 构建，打包成 `capsime-v<版本>-x64.exe` 并发布；release notes
+由 **tag 说明 + 自上个 tag 以来的提交** 自动生成：
+
+```powershell
+git tag -a v0.1.2 -m "一句话摘要（会成为 release notes 的开头）"
+git push origin v0.1.2
+```
+
+只想验证构建、不发布：Actions → release → Run workflow（手动触发只做测试与构建）。
+
 ## 路线图
 
 - [ ] 扩展配置文件：自定义注入的切换键、排除的程序（配色已支持）

@@ -242,6 +242,21 @@ click-through and no focus stealing, and the glyph is rendered by GDI with syste
 Reading UI Automation uses hand-written minimal COM interfaces — like the tray icon,
 **no new dependency was added**.
 
+## Releasing
+
+Push an annotated tag and [release.yml](.github/workflows/release.yml) takes over: format
+check, clippy, unit tests, release build, packaging into `capsime-v<version>-x64.exe`, and
+publishing. Release notes are generated from **the tag message plus every commit since the
+previous tag**:
+
+```powershell
+git tag -a v0.1.2 -m "One-line summary (becomes the opening of the release notes)"
+git push origin v0.1.2
+```
+
+To verify the build without publishing: Actions → release → Run workflow (manual runs only
+test and build).
+
 ## Roadmap
 
 - [ ] Extend the config file: custom switch key, excluded applications (colours are already configurable)

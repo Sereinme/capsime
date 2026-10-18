@@ -1,0 +1,113 @@
+name: release
+
+# 推 v* tag 时：测试 → 构建 → 打包 → 生成更新日志 → 发布。
+# 手动触发（Actions → release → Run workflow）只做测试与构建，不发布。
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: 检出源码（要完整历史才能生成更新日志）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 工具链版本
+        run: |
+          rustc --version
+          cargo --version
+
+      - name: 格式 / lint / 测试
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets -- -D warnings
+          cargo test
+
+      - name: 构建 release
+        run: cargo build --release
+
+      - name: 打包并计算校验值
+        id: pack
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          if ($tag -match '^v\d') {
+            $asset = "capsime-v$($tag.Substring(1))-x64.exe"
+          } else {
+            $asset = "capsime-dev-x64.exe"
+          }
+          Copy-Item target/release/capsime.exe $asset
+          $exe = Get-Item $asset
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
+          "asset=$asset" >> $env:GITHUB_OUTPUT
+          "size=$($exe.Length)" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+          Write-Output "asset=$asset size=$($exe.Length) sha256=$hash"
+
+      - name: 生成更新日志与校验说明
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          ASSET: ${{ steps.pack.outputs.asset }}
+          SIZE: ${{ steps.pack.outputs.size }}
+          SHA256: ${{ steps.pack.outputs.sha256 }}
+        run: |
+          # 按 UTF-8 解码 git 的输出，否则中文提交信息会随控制台代码页变成乱码
+          $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+          [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+          $tag = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+
+          # 上一个 tag 到当前 tag 的提交；第一个 tag 就列全部历史
+          $prev = git describe --tags --abbrev=0 "$tag^" 2>$null
+          if ($LASTEXITCODE -ne 0) { $prev = $null }
+          $range = if ($prev) { "$prev..$tag" } else { $tag }
+          $log = (git log $range --pretty=format:"- %s ([%h](https://github.com/$repo/commit/%H))") -join "`n"
+
+          # 带注释 tag 的说明放在最前面（第一个 tag 没有就跳过）
+          $tagMsg = (git tag -l --format="%(contents)" $tag | Out-String).Trim()
+
+          $parts = New-Object System.Collections.Generic.List[string]
+          if ($tagMsg) {
+            $parts.Add($tagMsg)
+            $parts.Add("")
+          }
+          $parts.Add("## 更新日志（$range）")
+          $parts.Add("")
+          $parts.Add($log)
+          $parts.Add("")
+          $parts.Add("## 下载校验")
+          $parts.Add("")
+          $parts.Add('```')
+          $parts.Add("文件：$env:ASSET")
+          $parts.Add("大小：$env:SIZE 字节")
+          $parts.Add("SHA256：$env:SHA256")
+          $parts.Add('```')
+          $parts.Add("")
+          $parts.Add("PowerShell 校验：``Get-FileHash .\$env:ASSET -Algorithm SHA256``")
+          $parts.Add("")
+          $parts.Add("完整用法与 FAQ 见 [README](https://github.com/$repo#readme)。")
+
+          $text = $parts -join "`n"
+          [System.IO.File]::WriteAllText("$PWD/release-notes.md", $text, (New-Object System.Text.UTF8Encoding($false)))
+          Write-Output $text
+
+      - name: 发布
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" "${{ steps.pack.outputs.asset }}" `
+            --title "${{ github.ref_name }}" `
+            --notes-file release-notes.md `
+            --verify-tag
