@@ -174,7 +174,11 @@ fn rect_anchor(rect: [f64; 4]) -> POINT {
     }
 }
 
-/// 焦点元素的外框左下角（只认尺寸合理的矩形）。
+/// 焦点元素的外框锚点（只认尺寸合理的矩形）。
+///
+/// 取点规则：**文本控件取左下**（输入光标通常从左侧开始），其余（整窗/面板/文档）
+/// 取**底边中点**——聊天框、终端、编辑器的输入区几乎都在应用底部。早先一律取左下，
+/// 在微信这类拿不到文本信息的 Qt 应用里卡片会跑到窗口左下角，离输入框很远。
 unsafe fn field_point_of(element: &Com) -> Option<POINT> {
     type GetRect = unsafe extern "system" fn(*mut c_void, *mut RECT) -> HRESULT;
     let get: GetRect = unsafe { element.slot(43) }; // get_CurrentBoundingRectangle
@@ -186,10 +190,23 @@ unsafe fn field_point_of(element: &Com) -> Option<POINT> {
     if width <= 4 || height <= 4 || (width as f64) > MAX_COORD || (height as f64) > MAX_COORD {
         return None;
     }
+    let is_text_control = matches!(unsafe { control_type_of(element) }, Some(50004 | 50020)); // Edit / Text
     Some(POINT {
-        x: rect.left,
+        x: if is_text_control {
+            rect.left
+        } else {
+            rect.left + width / 2
+        },
         y: rect.bottom,
     })
+}
+
+/// 焦点元素的控件类型 ID（读不到就当作未知）。
+unsafe fn control_type_of(element: &Com) -> Option<i32> {
+    type GetI32 = unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT;
+    let get: GetI32 = unsafe { element.slot(21) }; // get_CurrentControlType
+    let mut value = 0i32;
+    (unsafe { get(element.0, &mut value) } >= 0).then_some(value)
 }
 
 /// 焦点元素的插入点矩形 `[x, y, width, height]`（物理像素；诊断与探针用）。
@@ -223,10 +240,7 @@ pub fn focused_control_type() -> Option<i32> {
         || unsafe {
             let uia = create_uia()?;
             let element = focused_element(&uia)?;
-            type GetI32 = unsafe extern "system" fn(*mut c_void, *mut i32) -> HRESULT;
-            let get: GetI32 = element.slot(21); // get_CurrentControlType
-            let mut value = 0i32;
-            (get(element.0, &mut value) >= 0).then_some(value)
+            control_type_of(&element)
         },
     )
 }

@@ -177,7 +177,7 @@ pub fn show(chinese: bool) {
         match source {
             InsertionPoint::Caret => "插入点",
             InsertionPoint::UiaCaret => "输入位置（UIA）",
-            InsertionPoint::UiaField => "输入框位置（UIA）",
+            InsertionPoint::UiaField => "输入区域（UIA）",
             InsertionPoint::Cursor => "鼠标位置",
         },
         anchor.x,
@@ -267,7 +267,7 @@ pub(crate) enum InsertionPoint {
     Caret,
     /// UI Automation 读到的插入点（浏览器/Electron/WinUI 等不创建 Win32 caret 的程序）
     UiaCaret,
-    /// UI Automation 给的焦点控件外框：程序不给插入点矩形时的粗锚点
+    /// UI Automation 给的焦点控件外框：程序不给插入点矩形时的粗锚点（取底边中点）
     /// （Chromium 系、Windows Terminal 就是这样）
     UiaField,
     /// 鼠标位置（最后的手段）

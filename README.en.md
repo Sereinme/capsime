@@ -24,7 +24,7 @@ switch is logged. Diagnostic tools included.
 ## Features
 
 - ⌨️ **CapsLock toggles Chinese/English** — only a lone CapsLock press is intercepted; chords stay native
-- 💬 **A hint on every switch** — a small **Apple system blue** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the input field's frame and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
+- 💬 **A hint on every switch** — a small **Apple system blue** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the focused control's frame — bottom-left for text controls, the bottom-centre of the window/panel otherwise — and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
 - 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode (the context menu follows it too) and goes cool-gray while paused
 - 🪶 **Light** — one ~335 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
 - 🍃 **Zero polling** — the hook callback only posts one message; idle CPU measured at 0 ms over 15 s
@@ -137,8 +137,10 @@ It follows a four-step ladder, always trying to sit where you are actually typin
 1. **Win32 caret** (`GetGUIThreadInfo`) — provided by classic edit controls;
 2. **UIA caret** — browsers, Electron and WinUI never create a Win32 caret, so capsime asks
    UI Automation's `TextPattern` instead (verified bit-for-bit against .NET's UIA readings);
-3. **UIA field frame** — some apps (Chromium-based, Windows Terminal) expose the text field
-   but no caret rectangle;
+3. **UIA input area** — some apps (Chromium-based, Windows Terminal) expose the text field but
+   no caret rectangle, and Qt apps such as WeChat expose only the whole window; the card then
+   anchors to the focused control's frame: bottom-left for text controls, the bottom-centre of
+   the window/panel otherwise (chat boxes, terminals and editor inputs live at the bottom);
 4. **Mouse position** — only when focus is not in a text field at all.
 
 macOS can always anchor to the input field because its text system obliges every editable

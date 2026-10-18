@@ -307,7 +307,7 @@ fn do_switch() {
                     "UIA 输入位置：{}（耗时 {elapsed} ms，焦点控件 {kind}）",
                     match (anchors.caret, anchors.field) {
                         (Some(p), _) => format!("（{}, {}）", p.x, p.y),
-                        (None, Some(p)) => format!("无插入点，退到输入框外框（{}, {}）", p.x, p.y),
+                        (None, Some(p)) => format!("无插入点，退到输入区域（{}, {}）", p.x, p.y),
                         (None, None) => "无".into(),
                     },
                 ));
