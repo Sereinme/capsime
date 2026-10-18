@@ -102,6 +102,14 @@ pub fn set_per_monitor_dpi_aware() {
     unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 }
 
+/// 本程序的本地数据目录：`%LOCALAPPDATA%\capsime`（日志与配置都在这里）。
+pub fn data_dir() -> std::path::PathBuf {
+    std::env::var_os("LOCALAPPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("capsime")
+}
+
 /// 向控制台输出一行。
 ///
 /// GUI 子系统进程里 Rust 的 stdout 句柄不可靠，直接写 CONOUT$。

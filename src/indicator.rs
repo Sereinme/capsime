@@ -30,12 +30,14 @@
 //!
 //! ## 卡片外观
 //!
-//! 卡面是**朱砂橙 + 白色字形**，两套主题各一档色深：亮色用深朱砂 `#C2410C`（在白页上
-//! 4.7:1、白字 5.2:1），暗色用亮橙 `#EA580C`（在深色内容上 4.7:1、白字 3.6:1）。
-//! 单一颜色被证明两头不讨好：白/灰在浅色页面看不见，克莱因蓝在深色界面只有 1.5:1，
-//! 纯黄在浅色页面发白；而白字又要求卡面足够深。其余照 Apple 的公开设计系统：
-//! **没有装饰性渐变**——纯色卡面 + 1px 发丝线 + 一道柔和投影，形状是超椭圆
-//! （Apple 式连续圆角方砖）。
+//! 卡面是 **Apple 系统蓝 + 白色字形**，两套主题各一档：亮色 `#0066CC`（Action Blue，
+//! 白字 3.8:1、对白页 4.4:1）、暗色 `#0A84FF`（macOS 系统蓝，白字 3.7:1、对深色内容
+//! 4.6:1）。白字要求卡面够深，而"在深色内容上显眼"又要求卡面够亮，所以按主题各优化
+//! 一头；颜色可由用户在 `%LOCALAPPDATA%\capsime\config.ini` 里改（见 [`crate::config`]），
+//! 卡片每次显示前检查文件时间戳，改完保存即生效。
+//!
+//! 其余照 Apple 的公开设计系统：**没有装饰性渐变**——纯色卡面 + 1px 发丝线 +
+//! 一道柔和投影，形状是超椭圆（Apple 式连续圆角方砖）。
 //!
 //! ## 线程与消息
 //!
@@ -63,7 +65,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
 };
 
-use crate::{log, theme, util};
+use crate::{config, log, theme, util};
 
 /// 是否启用提示（托盘菜单可切换）。
 static ENABLED: AtomicBool = AtomicBool::new(true);
@@ -136,6 +138,7 @@ pub fn show(chinese: bool) {
     if !is_enabled() {
         return;
     }
+    refresh_colors();
     let Some(hwnd) = ensure_window() else {
         return;
     };
@@ -443,25 +446,61 @@ const SQUIRCLE_N: f32 = 4.0;
 /// 投影相对卡片边长的下移量。
 const SHADOW_DY: f32 = 0.06;
 
-/// 卡面强调色：两种主题各一档，都配**白色字形**（和托盘图标的朱砂色同族）。
-///
-/// 白字要求卡面够深，而"在深色内容上显眼"又要求卡面够亮，单一颜色两头不讨好，
-/// 所以按主题各优化一头（相对亮度 Y、白色字形对比度、对内容的对比度）：
-///
-/// | 主题 | 卡面 | Y | 白字 | 对浅色内容 | 对深色内容 |
-/// | --- | --- | --- | --- | --- | --- |
-/// | 亮色 | `#C2410C` 深朱砂 | 0.15 | 5.1:1 | 5.4:1 | 3.6:1 |
-/// | 暗色 | `#EA580C` 亮橙 | 0.25 | 3.5:1（粗体大字） | 3.2:1 | 4.4:1 |
-///
-/// 蓝/紫这类低亮度色在深色界面上只有 1.5~2.8:1（克莱因蓝的教训），白字也会发虚，
-/// 所以卡面固定在"中间偏暗 + 高彩度"的橙色带里。
-const ACCENT_LIGHT: [f32; 3] = [194.0, 65.0, 12.0];
-const ACCENT_DARK: [f32; 3] = [234.0, 88.0, 12.0];
+/// 卡面颜色（用户可改，见 [`crate::config`]）：打包成 `0xRRGGBB` 的无锁原子量。
+static FILL_LIGHT: AtomicU32 = AtomicU32::new(pack(config::DEFAULT_LIGHT));
+static FILL_DARK: AtomicU32 = AtomicU32::new(pack(config::DEFAULT_DARK));
+/// 上次读到的配置时间戳（初值取一个不可能的值，保证第一次一定重读）。
+static CONFIG_STAMP: AtomicU32 = AtomicU32::new(u32::MAX);
 
+const fn pack(rgb: [u8; 3]) -> u32 {
+    ((rgb[0] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[2] as u32
+}
+
+fn unpack(value: u32) -> [f32; 3] {
+    [
+        ((value >> 16) & 0xFF) as f32,
+        ((value >> 8) & 0xFF) as f32,
+        (value & 0xFF) as f32,
+    ]
+}
+
+/// 配置文件改了就重读（每次显示前调用；一次 metadata 调用，很便宜）。
+fn refresh_colors() {
+    let stamp = config::stamp();
+    if CONFIG_STAMP.swap(stamp, Ordering::SeqCst) == stamp {
+        return;
+    }
+    let colors = config::load();
+    FILL_LIGHT.store(pack(colors.light), Ordering::SeqCst);
+    FILL_DARK.store(pack(colors.dark), Ordering::SeqCst);
+    log::info(&format!(
+        "配色配置：亮色 #{:02X}{:02X}{:02X}、暗色 #{:02X}{:02X}{:02X}",
+        colors.light[0],
+        colors.light[1],
+        colors.light[2],
+        colors.dark[0],
+        colors.dark[1],
+        colors.dark[2]
+    ));
+}
+
+/// 卡面配色：两套主题各一档色深，都配白字；底色可在配置文件里改。
+///
+/// 默认值取自 Apple 设计系统：亮色 `#0066CC`（Action Blue，白字 3.8:1、对白页
+/// 4.4:1）、暗色 `#0A84FF`（macOS 系统蓝，白字 3.7:1、对深色内容 4.6:1）。
+/// 白字要求卡面够深，而"在深色内容上显眼"又要求卡面够亮，所以按主题各优化一头。
+///
+/// 发丝线、上缘高光与投影强度仍按主题固定：浅色主题用黑发丝线，
+/// 深色主题用白发丝线 + 上缘微高光。
 fn palette(light: bool) -> CardPalette {
+    let fill = unpack(if light {
+        FILL_LIGHT.load(Ordering::SeqCst)
+    } else {
+        FILL_DARK.load(Ordering::SeqCst)
+    });
     if light {
         CardPalette {
-            fill: ACCENT_LIGHT,
+            fill,
             fill_alpha: 0.97,
             border: [0.0, 0.0, 0.0],
             border_alpha: 0.10,
@@ -472,7 +511,7 @@ fn palette(light: bool) -> CardPalette {
         }
     } else {
         CardPalette {
-            fill: ACCENT_DARK,
+            fill,
             fill_alpha: 0.97,
             border: [255.0, 255.0, 255.0],
             border_alpha: 0.14,

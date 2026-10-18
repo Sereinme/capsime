@@ -14,7 +14,7 @@ use std::cell::RefCell;
 use tray_icon::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
-use crate::{autostart, hook, icon, indicator, log, theme, util};
+use crate::{autostart, config, hook, icon, indicator, log, theme, util};
 
 thread_local! {
     static TRAY: RefCell<Option<TrayIcon>> = const { RefCell::new(None) };
@@ -45,6 +45,7 @@ pub fn init() -> Result<(), String> {
     let enabled_item = CheckMenuItem::new("启用大写键切换", true, hook::is_enabled(), None);
     let autostart_item = CheckMenuItem::new("开机自动启动", true, autostart::is_enabled(), None);
     let hint_item = CheckMenuItem::new("切换时显示提示", true, indicator::is_enabled(), None);
+    let config_item = MenuItem::new("配色配置…", true, None);
     let log_item = MenuItem::new("查看日志", true, None);
     let quit_item = MenuItem::new("退出", true, None);
 
@@ -52,6 +53,7 @@ pub fn init() -> Result<(), String> {
     menu.append(&enabled_item).map_err(|e| e.to_string())?;
     menu.append(&autostart_item).map_err(|e| e.to_string())?;
     menu.append(&hint_item).map_err(|e| e.to_string())?;
+    menu.append(&config_item).map_err(|e| e.to_string())?;
     menu.append(&PredefinedMenuItem::separator())
         .map_err(|e| e.to_string())?;
     menu.append(&log_item).map_err(|e| e.to_string())?;
@@ -68,6 +70,7 @@ pub fn init() -> Result<(), String> {
     let enabled_id = enabled_item.id().clone();
     let autostart_id = autostart_item.id().clone();
     let hint_id = hint_item.id().clone();
+    let config_id = config_item.id().clone();
     let log_id = log_item.id().clone();
     let quit_id = quit_item.id().clone();
 
@@ -84,6 +87,12 @@ pub fn init() -> Result<(), String> {
             on_toggle_autostart();
         } else if *id == hint_id {
             on_toggle_hint();
+        } else if *id == config_id {
+            // 没有配置文件就先写一份带注释的模板，再用默认编辑器打开
+            if let Some(path) = config::ensure_file() {
+                util::open_path(&path);
+                log::info("已打开配色配置（保存后下一次切换即生效）");
+            }
         } else if *id == log_id {
             if let Some(p) = log::path() {
                 util::open_path(p);

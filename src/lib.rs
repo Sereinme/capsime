@@ -6,12 +6,14 @@
 //! - [`tray`]：托盘图标与菜单
 //! - [`indicator`]：切换时在输入位置附近弹出的「中 / en」提示卡片
 //! - [`uia`]：用 UI Automation 读现代程序（浏览器/Electron/WinUI）的插入点
+//! - [`config`]：本地配置（卡片配色）
 //! - [`autostart`]：开机自启（注册表 Run 项）
 //! - [`app`]：装配、消息循环与生命周期
 //! - [`log`]、[`util`]、[`icon`]、[`theme`]：基础设施
 
 pub mod app;
 pub mod autostart;
+pub mod config;
 pub mod hook;
 pub mod icon;
 pub mod indicator;

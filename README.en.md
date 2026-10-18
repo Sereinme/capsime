@@ -24,7 +24,7 @@ switch is logged. Diagnostic tools included.
 ## Features
 
 - ⌨️ **CapsLock toggles Chinese/English** — only a lone CapsLock press is intercepted; chords stay native
-- 💬 **A hint on every switch** — a small **vermilion-orange** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the input field's frame and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
+- 💬 **A hint on every switch** — a small **Apple system blue** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the input field's frame and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
 - 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode and goes cool-gray while paused
 - 🪶 **Light** — one ~460 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
 - 🍃 **Zero polling** — the hook callback only posts one message; idle CPU measured at 0 ms over 15 s
@@ -59,6 +59,7 @@ Requires Rust 1.85+. Works with either the MSVC or GNU toolchain.
 | Enable CapsLock switching | Pause/resume interception; while paused CapsLock behaves natively and the icon turns cool-gray |
 | Start with Windows | Adds/removes an `HKCU\...\CurrentVersion\Run` entry (current user only) |
 | Show switching hint | Pops the 「中 / en」 card near the caret / cursor (on by default) |
+| Colour config… | Opens `%LOCALAPPDATA%\capsime\config.ini` (created if missing) to change the card colour; saving applies immediately |
 | View log | Opens `%LOCALAPPDATA%\capsime\capsime.log` (rotates at 512 KB) |
 | Quit | Uninstalls the hook and exits |
 
@@ -145,6 +146,10 @@ view to report its insertion point; Windows has no such contract. The tier used 
 the log (start with `CAPSIME_DEBUG=1`); to see which path your own apps take, run
 `cargo run --example caret_probe`. Details and per-app measurements:
 [docs/ime-switching.md](docs/ime-switching.md) (Chinese).
+
+Want a different colour? Tray menu → “Colour config…” → edit `light_color` / `dark_color`
+(RRGGBB) in `config.ini`; saving applies on the next switch, no restart needed. The defaults
+are Apple system blues (`#0066CC` light, `#0A84FF` dark).
 </details>
 
 <details>
@@ -196,7 +201,7 @@ unaffected and the system's `LowLevelHooksTimeout` (300 ms by default) is never 
 ```powershell
 cargo fmt
 cargo clippy                # no warnings
-cargo test                  # 31 unit tests
+cargo test                  # 36 unit tests
 cargo run --example icon_preview        # tray icon sheet: sizes × enabled/paused × themes
 cargo run --example indicator_preview   # switch-hint card sheet: glyphs × themes × 100/150% DPI
 cargo run --example caret_probe         # insertion-point probe: which anchoring path is used
@@ -214,6 +219,7 @@ src/
   indicator.rs  switch hint: layered popup + hand-drawn card + four-tier anchoring
   uia.rs        UI Automation client: hand-written minimal COM interfaces, reads the
                 insertion point of browsers / Electron / WinUI
+  config.rs     local config: hint card colours (config.ini)
   theme.rs      system light/dark mode detection
   autostart.rs  autostart via an HKCU Run entry
   log.rs        minimal file log (512 KB rotation)
@@ -238,7 +244,7 @@ Reading UI Automation uses hand-written minimal COM interfaces — like the tray
 
 ## Roadmap
 
-- [ ] Configuration file: custom switch key, excluded applications
+- [ ] Extend the config file: custom switch key, excluded applications (colours are already configurable)
 - [ ] Long-press CapsLock = native caps lock (short press toggles IME)
 - [ ] Hold CapsLock for temporary English (release returns to Chinese)
 - [ ] Hint card placement preference (above/below/left/right)

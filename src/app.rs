@@ -53,7 +53,7 @@ pub fn run() -> i32 {
     if !acquire_single_instance() {
         return 0; // 已有实例在运行，静默退出
     }
-    log::init(&data_dir());
+    log::init(&util::data_dir());
     log::info(&format!("capsime {} 启动", env!("CARGO_PKG_VERSION")));
 
     let worker = match spawn_worker() {
@@ -126,7 +126,7 @@ pub fn run() -> i32 {
 /// CapsLock，时间很短）。
 pub fn selftest(seconds: u64) -> i32 {
     util::attach_parent_console();
-    log::init(&data_dir());
+    log::init(&util::data_dir());
     log::info(&format!("selftest 开始（{seconds}s）"));
 
     let worker = match spawn_worker() {
@@ -455,13 +455,6 @@ fn acquire_single_instance() -> bool {
     let duplicate = util::last_error() == ERROR_ALREADY_EXISTS;
     let _ = MUTEX.set(handle as isize); // 持有到进程结束
     !duplicate
-}
-
-fn data_dir() -> std::path::PathBuf {
-    std::env::var_os("LOCALAPPDATA")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("capsime")
 }
 
 fn fatal_box(title: &str, text: &str) {

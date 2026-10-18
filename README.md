@@ -21,7 +21,7 @@ CapsLock 常年吃灰。capsime 把它变成中英文切换键：**按一下切�
 ## 特性
 
 - ⌨️ **CapsLock 中英文一键切换** —— 只拦"单独按下的 CapsLock"，其余组合键原样保留
-- 💬 **切换时给个提示** —— 在插入点/输入框旁边弹出**朱砂橙**的「中 / en」小卡片（白字，亮/暗模式各一档色深），约 0.7 秒淡出；
+- 💬 **切换时给个提示** —— 在插入点/输入框旁边弹出 **Apple 系统蓝**的「中 / en」小卡片（白字，亮/暗模式各一档色深），约 0.7 秒淡出；
   拿不到插入点就退到输入框外框、再退到鼠标位置；亮/暗模式下自动调整描边与投影，可在托盘菜单关掉
 - 🎨 **会看眼色的托盘图标** —— 几何圆环 + 一笔朱砂收锋的「C」，跟随系统亮/暗模式自动换色，暂停时转冷灰
 - 🪶 **轻量** —— 单文件 exe 约 460 KB；空闲工作集约 11 MB、私有内存 1.6 MB
@@ -57,6 +57,7 @@ cargo build --release        # 产物：target\release\capsime.exe
 | 启用大写键切换 | 临时暂停/恢复拦截；暂停后 CapsLock 恢复原生大写锁功能，图标转冷灰 |
 | 开机自动启动 | 写/删注册表 `HKCU\...\CurrentVersion\Run`（只影响当前用户） |
 | 切换时显示提示 | 在光标/输入框附近弹出「中 / en」小卡片（默认开） |
+| 配色配置… | 打开 `%LOCALAPPDATA%\capsime\config.ini`（不存在则创建），改卡片底色；保存即生效 |
 | 查看日志 | 打开 `%LOCALAPPDATA%\capsime\capsime.log`（超过 512 KB 自动轮转一次） |
 | 退出 | 卸载钩子后退出 |
 
@@ -130,6 +131,10 @@ macOS 的提示能永远贴着输入框，是因为它的文本系统要求每�
 Windows 没有这个统一契约。走了哪一级会写进日志（用 `CAPSIME_DEBUG=1` 启动），
 想先看看你这台机器上的程序走哪条路：`cargo run --example caret_probe`。
 原理与逐程序实测见 [docs/ime-switching.md](docs/ime-switching.md) 的「切换提示」一节。
+
+想要别的颜色：托盘菜单「配色配置…」→ 改 `config.ini` 里的 `light_color` / `dark_color`
+（RRGGBB），保存后下一次切换即生效，不用重启。默认是 Apple 系统蓝
+（亮色 `#0066CC`、暗色 `#0A84FF`）。
 </details>
 
 <details>
@@ -180,7 +185,7 @@ Windows 没有这个统一契约。走了哪一级会写进日志（用 `CAPSIME
 ```powershell
 cargo fmt
 cargo clippy                # 无警告
-cargo test                  # 31 项单元测试
+cargo test                  # 36 项单元测试
 cargo run --example icon_preview        # 托盘图标验收图：尺寸 × 启用/暂停 × 亮/暗
 cargo run --example indicator_preview   # 切换提示卡片验收图：字形 × 主题 × 100%/150% DPI
 cargo run --example caret_probe         # 输入位置探针：当前程序走哪条定位路径
@@ -197,6 +202,7 @@ src/
   icon.rs       托盘图标：几何圆环 + 朱砂收锋的「C」，亮/暗双主题（含单元测试）
   indicator.rs  切换提示：分层弹窗 + 自绘卡片 + 四级定位阶梯（插入点/输入框/鼠标，含单元测试）
   uia.rs        UI Automation 客户端：手写最小 COM 接口，读浏览器/Electron/WinUI 的插入点
+  config.rs     本地配置：卡片配色（config.ini，含单元测试）
   theme.rs      系统亮/暗模式检测
   autostart.rs  开机自启（HKCU Run 项，含单元测试）
   log.rs        极简文件日志（512 KB 轮转）
@@ -218,7 +224,7 @@ docs/              设计与实现笔记
 
 ## 路线图
 
-- [ ] 配置文件：自定义注入的切换键、排除的程序
+- [ ] 扩展配置文件：自定义注入的切换键、排除的程序（配色已支持）
 - [ ] 长按 CapsLock = 原生大写锁（短按切换中英文）
 - [ ] 按住 CapsLock 临时英文（松开回到中文）
 - [ ] 提示卡片位置微调（上/下/左/右偏好）

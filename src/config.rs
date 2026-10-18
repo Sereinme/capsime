@@ -1,0 +1,146 @@
+//! 极简配置文件：`%LOCALAPPDATA%\capsime\config.ini`。
+//!
+//! 目前只有一个用途：切换提示卡片的底色。格式是 `key = value`，`#` 开头为注释；
+//! 改完保存即可——卡片每次显示前会看一眼文件修改时间，变了就重读，不需要重启
+//! （托盘菜单「配色配置…」会创建模板并用默认编辑器打开它）。
+//!
+//! 默认色取自 Apple 的设计系统：亮色 `#0066CC`（Action Blue）、暗色 `#0A84FF`
+//! （macOS 系统蓝暗色版），都配白字。
+
+use std::path::PathBuf;
+use std::time::SystemTime;
+
+use crate::{log, util};
+
+/// 亮色主题的默认底色（Apple Action Blue）。
+pub const DEFAULT_LIGHT: [u8; 3] = [0x00, 0x66, 0xCC];
+/// 暗色主题的默认底色（macOS systemBlue 暗色版）。
+pub const DEFAULT_DARK: [u8; 3] = [0x0A, 0x84, 0xFF];
+
+/// 从配置读出来的颜色。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Colors {
+    pub light: [u8; 3],
+    pub dark: [u8; 3],
+}
+
+impl Default for Colors {
+    fn default() -> Self {
+        Self {
+            light: DEFAULT_LIGHT,
+            dark: DEFAULT_DARK,
+        }
+    }
+}
+
+/// 配置文件路径。
+pub fn path() -> PathBuf {
+    util::data_dir().join("config.ini")
+}
+
+/// 配置文件模板（文件不存在时写出来）。
+const TEMPLATE: &str = "\
+# capsime 配置文件
+#
+# 卡片底色，格式 RRGGBB（可带 #）。改完保存，下一次按 CapsLock 即生效。
+# 默认值取自 Apple 的设计系统：
+#   亮色 0066CC —— Action Blue，白字对比 3.8:1
+#   暗色 0A84FF —— macOS 系统蓝暗色版，白字 3.7:1
+#
+# 两种主题各取一档：卡面要深到能压住白字，又要亮到能在对应主题的内容上跳出来。
+light_color = 0066CC
+dark_color = 0A84FF
+";
+
+/// 确保配置文件存在（不存在就写模板），返回路径。
+pub fn ensure_file() -> Option<PathBuf> {
+    let path = path();
+    if !path.exists() {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if let Err(e) = std::fs::write(&path, TEMPLATE) {
+            log::warn(&format!("写配置模板失败：{e}"));
+            return None;
+        }
+    }
+    Some(path)
+}
+
+/// 文件修改时间（自 UNIX 纪元的秒数）；文件不存在或读不到返回 0。
+pub fn stamp() -> u32 {
+    std::fs::metadata(path())
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs().min(u32::MAX as u64) as u32)
+        .unwrap_or(0)
+}
+
+/// 读配置；缺项用默认值，格式错误记日志并忽略该项。
+pub fn load() -> Colors {
+    let mut colors = Colors::default();
+    let Ok(text) = std::fs::read_to_string(path()) else {
+        return colors;
+    };
+    for (index, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim().to_ascii_lowercase();
+        let slot = match key.as_str() {
+            "light_color" => &mut colors.light,
+            "dark_color" => &mut colors.dark,
+            _ => continue,
+        };
+        match parse_hex(value) {
+            Some(rgb) => *slot = rgb,
+            None => log::warn(&format!(
+                "配置第 {} 行：{} 不是 RRGGBB 颜色，忽略",
+                index + 1,
+                value.trim()
+            )),
+        }
+    }
+    colors
+}
+
+/// `0066CC` / `#0066CC` → `[0x00, 0x66, 0xCC]`。
+fn parse_hex(value: &str) -> Option<[u8; 3]> {
+    let hex = value.trim().trim_start_matches('#');
+    if hex.len() != 6 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let n = u32::from_str_radix(hex, 16).ok()?;
+    Some([(n >> 16) as u8, (n >> 8) as u8, n as u8])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_hex_with_and_without_hash() {
+        assert_eq!(parse_hex("0066CC"), Some([0x00, 0x66, 0xCC]));
+        assert_eq!(parse_hex("#0A84FF"), Some([0x0A, 0x84, 0xFF]));
+        assert_eq!(parse_hex("  ff0000 "), Some([255, 0, 0]));
+    }
+
+    #[test]
+    fn rejects_bad_hex() {
+        for bad in ["", "06CC", "0066CCCC", "GGGGGG", "#", "0x66CC"] {
+            assert_eq!(parse_hex(bad), None, "应拒绝 {bad:?}");
+        }
+    }
+
+    #[test]
+    fn defaults_are_apple_blue() {
+        let d = Colors::default();
+        assert_eq!(d.light, [0x00, 0x66, 0xCC]);
+        assert_eq!(d.dark, [0x0A, 0x84, 0xFF]);
+    }
+}
