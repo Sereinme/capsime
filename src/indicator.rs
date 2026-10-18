@@ -30,10 +30,11 @@
 //!
 //! ## 卡片外观
 //!
-//! 卡面用**克莱因蓝**（International Klein Blue，`#002FA7`）+ 白字；其余照 Apple 的
-//! 公开设计系统：**没有装饰性渐变**——纯色卡面 + 1px 发丝线 + 一道柔和投影，
-//! 形状是超椭圆（Apple 式连续圆角方砖）。亮/暗主题只体现在发丝线、上缘高光与投影
-//! 强度上；早先的白/系统灰卡面在内容上几乎"看不见"，所以改成这个高辨识度的蓝。
+//! 卡面用**亮橙**（`#FF6A00`）+ 近黑字；其余照 Apple 的公开设计系统：**没有装饰性
+//! 渐变**——纯色卡面 + 1px 发丝线 + 一道柔和投影，形状是超椭圆（Apple 式连续圆角方砖）。
+//! 颜色是按"在浅色/深色内容上都显眼"挑的（见 [`ACCENT`] 的对比度表）：白/灰太淡、
+//! 克莱因蓝在深色界面上只有 1.5:1、纯黄在浅色页面上又发白，橙色是唯一两边都够醒目的
+//! 一档。亮/暗主题只体现在发丝线、上缘高光与投影强度上。
 //!
 //! ## 线程与消息
 //!
@@ -441,34 +442,43 @@ const SQUIRCLE_N: f32 = 4.0;
 /// 投影相对卡片边长的下移量。
 const SHADOW_DY: f32 = 0.06;
 
-/// 卡片配色：**克莱因蓝**（International Klein Blue，`#002FA7`）作卡面、白字。
+/// 卡面强调色：**亮橙** `#FF6A00`，配近黑字。
 ///
-/// 亮/暗主题只体现在发丝线、上缘高光与投影强度上——克莱因蓝在浅色和深色背景上
-/// 都足够醒目。早先的白/系统灰卡面在内容上几乎"看不见"，这正是换色的原因。
-const KLEIN_BLUE: [f32; 3] = [0.0, 47.0, 167.0];
+/// 选色标准是"在浅色和深色内容上都显眼"，用相对亮度（Y）和对比度量过：
+///
+/// | 颜色 | Y | 对深色底 | 对浅色底 |
+/// | --- | --- | --- | --- |
+/// | 克莱因蓝 `#002FA7` | 0.05 | **1.5:1**（沉进深色界面） | 9.8:1 |
+/// | 亮橙 `#FF6A00` | 0.32 | 5.6:1 | 2.6:1 |
+/// | 琥珀 `#FFB300` | 0.54 | 8.9:1 | 1.7:1（浅色页面上发白） |
+/// | 纯黄 `#FFD60A` | 0.69 | 11.3:1 | 1.3:1（几乎看不见） |
+///
+/// 橙色是唯一两边都压得住的一档，还带很强的彩度；近黑字对橙面有 7.3:1，
+/// 比白字（2.9:1）清楚得多，所以字形用 ink。
+const ACCENT: [f32; 3] = [255.0, 106.0, 0.0];
 
 fn palette(light: bool) -> CardPalette {
     if light {
         CardPalette {
-            fill: KLEIN_BLUE,
+            fill: ACCENT,
             fill_alpha: 0.97,
-            border: [255.0, 255.0, 255.0],
-            border_alpha: 0.12,
+            border: [0.0, 0.0, 0.0],
+            border_alpha: 0.10,
             top_highlight: 0.0,
             shadow_alpha: 0.24,
             shadow_blur: 0.20,
-            text: [255.0, 255.0, 255.0],
+            text: [29.0, 29.0, 31.0],
         }
     } else {
         CardPalette {
-            fill: KLEIN_BLUE,
+            fill: ACCENT,
             fill_alpha: 0.97,
             border: [255.0, 255.0, 255.0],
-            border_alpha: 0.16,
-            top_highlight: 0.10,
-            shadow_alpha: 0.38,
+            border_alpha: 0.14,
+            top_highlight: 0.08,
+            shadow_alpha: 0.36,
             shadow_blur: 0.20,
-            text: [255.0, 255.0, 255.0],
+            text: [29.0, 29.0, 31.0],
         }
     }
 }
@@ -956,8 +966,9 @@ mod tests {
     }
 
     #[test]
-    fn card_face_is_klein_blue() {
-        // 卡面必须是克莱因蓝 #002FA7（B 远大于 G，G 大于 R），且不是近黑
+    fn card_face_is_conspicuous_on_both_backgrounds() {
+        // 卡面亮度要落在中间带（太低会沉进深色界面——克莱因蓝的教训；太高会在浅色页面
+        // 发白——纯黄的教训），同时要高饱和；取卡面中位像素来量
         let card = 24i32;
         let (pixels, side) = render_card(true, card, false);
         let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
@@ -975,17 +986,33 @@ mod tests {
             }
         }
         assert!(!channels[0].is_empty(), "卡片内部应有像素");
-        // 中位数必然是卡面、不会落在白色字形上
+        // 中位数必然是卡面、不会落在近黑字形上
         let mut median = [0u8; 3];
         for (c, values) in channels.iter_mut().enumerate() {
             values.sort_unstable();
             median[c] = values[values.len() / 2];
         }
         let [b, g, r] = median; // 内存里是 BGRA
+        let lum = relative_luminance([r, g, b]);
         assert!(
-            b >= 140 && b > g && g > r,
-            "卡面应是克莱因蓝（实测 R{r} G{g} B{b}）"
+            (0.15..=0.55).contains(&lum),
+            "卡面亮度应落在中间带（实测 Y={lum:.2}，R{r} G{g} B{b}）"
         );
+        let chroma = r.max(g).max(b) as i32 - r.min(g).min(b) as i32;
+        assert!(chroma >= 100, "卡面应是高饱和色（彩度 {chroma}）");
+    }
+
+    /// sRGB 相对亮度（WCAG）。
+    fn relative_luminance(rgb: [u8; 3]) -> f32 {
+        let lin = |c: u8| {
+            let v = c as f32 / 255.0;
+            if v <= 0.04045 {
+                v / 12.92
+            } else {
+                ((v + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2])
     }
 
     #[test]
