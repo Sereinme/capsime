@@ -122,6 +122,8 @@ pub fn refresh_theme() {
             "系统切到暗色模式，托盘图标已跟随"
         });
         apply_appearance();
+        // 菜单主题是 uxtheme 进程级缓存的：重刷一次，否则要重启才换色
+        theme::enable_dark_menus();
     }
 }
 

@@ -25,7 +25,7 @@ switch is logged. Diagnostic tools included.
 
 - ⌨️ **CapsLock toggles Chinese/English** — only a lone CapsLock press is intercepted; chords stay native
 - 💬 **A hint on every switch** — a small **Apple system blue** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the input field's frame and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
-- 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode and goes cool-gray while paused
+- 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode (the context menu follows it too) and goes cool-gray while paused
 - 🪶 **Light** — one ~464 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
 - 🍃 **Zero polling** — the hook callback only posts one message; idle CPU measured at 0 ms over 15 s
 - 🔍 **Debuggable** — every switch logs method/state/verification/foreground app; ships `--selftest` and an `ime_probe` diagnostic

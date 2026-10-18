@@ -56,6 +56,9 @@ pub fn run() -> i32 {
     log::init(&util::data_dir());
     log::info(&format!("capsime {} 启动", env!("CARGO_PKG_VERSION")));
 
+    // 托盘菜单是系统原生菜单，默认永远浅色；先允许它跟随系统深/浅色，再建托盘
+    theme::enable_dark_menus();
+
     let worker = match spawn_worker() {
         Ok(w) => w,
         Err(e) => {

@@ -65,5 +65,9 @@ git push origin vX.Y.Z
   否则 150% 屏上会比 125% 屏看得更远
 - 数据目录：`%LOCALAPPDATA%\capsime\`（`capsime.log` 与 `config.ini`）；配色配置
   改完保存即生效（按文件时间戳自动重载），不需要重启
+- 托盘菜单是系统原生菜单（muda 的 `TrackPopupMenu`），**默认永远浅色**：
+  `theme::enable_dark_menus()` 用 uxtheme 的未公开序号（135 `SetPreferredAppMode`
+  / 136 `FlushMenuThemes`）打开跟随，系统主题变化后要重刷（`tray::refresh_theme`
+  已处理）。序号缺失时安静降级为浅色菜单，不要为此加 panic
 - 中文提交信息：本机 PowerShell 5.1 可能按 GBK 解码外部命令输出，写脚本处理 git 输出时
   记得把 `$OutputEncoding` / `[Console]::OutputEncoding` 设成 UTF-8
