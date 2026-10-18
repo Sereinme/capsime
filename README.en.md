@@ -59,7 +59,7 @@ Requires Rust 1.85+. Works with either the MSVC or GNU toolchain.
 | Enable CapsLock switching | Pause/resume interception; while paused CapsLock behaves natively and the icon turns cool-gray |
 | Start with Windows | Adds/removes an `HKCU\...\CurrentVersion\Run` entry (current user only) |
 | Show switching hint | Pops the 「中 / en」 card near the caret / cursor (on by default) |
-| Colour config… | Opens `%LOCALAPPDATA%\capsime\config.ini` (created if missing) to change the card colour; saving applies immediately |
+| Edit config… | Opens `%LOCALAPPDATA%\capsime\config.ini` (created if missing) to change the card colour and placement; saving applies immediately |
 | View log | Opens `%LOCALAPPDATA%\capsime\capsime.log` (rotates at 512 KB) |
 | Quit | Uninstalls the hook and exits |
 
@@ -147,9 +147,12 @@ the log (start with `CAPSIME_DEBUG=1`); to see which path your own apps take, ru
 `cargo run --example caret_probe`. Details and per-app measurements:
 [docs/ime-switching.md](docs/ime-switching.md) (Chinese).
 
-Want a different colour? Tray menu → “Colour config…” → edit `light_color` / `dark_color`
-(RRGGBB) in `config.ini`; saving applies on the next switch, no restart needed. The defaults
-are Apple system blues (`#0066CC` light, `#0A84FF` dark).
+Want a different colour or position? Tray menu → “Edit config…” → edit `light_color` /
+`dark_color` (RRGGBB) and `position` in `config.ini`; saving applies on the next switch, no
+restart needed. The default colours are Apple system blues (`#0066CC` light, `#0A84FF` dark).
+`position` can be `auto` (default: below-right, flipping near screen edges), `above` /
+`below` (centred horizontally on the anchor), or `left` / `right` (centred vertically); when
+the preferred side does not fit, it flips to the opposite side.
 </details>
 
 <details>
@@ -262,7 +265,7 @@ test and build).
 - [ ] Extend the config file: custom switch key, excluded applications (colours are already configurable)
 - [ ] Long-press CapsLock = native caps lock (short press toggles IME)
 - [ ] Hold CapsLock for temporary English (release returns to Chinese)
-- [ ] Hint card placement preference (above/below/left/right)
+
 
 ## License
 

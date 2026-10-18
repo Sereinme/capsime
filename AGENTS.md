@@ -61,9 +61,10 @@ git push origin vX.Y.Z
     对浅色页与深色内容都 ≥2.8:1、彩度 ≥100
   - `visible_gap_is_constant_across_dpi`：卡片与锚点"看得见的间距"在 96–192 DPI 下恒为 6px
   - `squircle_is_rounder_than_a_square`：卡片形状是超椭圆，不是圆角矩形
-- 摆放提示卡片时要把**阴影留白**从间距里扣掉（`place(anchor, side, OFFSET_PX - margin, …)`），
-  否则 150% 屏上会比 125% 屏看得更远
-- 数据目录：`%LOCALAPPDATA%\capsime\`（`capsime.log` 与 `config.ini`）；配色配置
+- 摆放提示卡片时要把**阴影留白**从间距里扣掉（`place(anchor, card, margin, OFFSET_PX, work, placement)`
+  内部已扣），否则 150% 屏上会比 125% 屏看得更远；位置偏好（`position = auto|above|below|left|right`）
+  也从这里进来
+- 数据目录：`%LOCALAPPDATA%\capsime\`（`capsime.log` 与 `config.ini`）；配置（配色 + 卡片位置）
   改完保存即生效（按文件时间戳自动重载），不需要重启
 - 托盘菜单是系统原生菜单（muda 的 `TrackPopupMenu`），**默认永远浅色**：
   `theme::enable_dark_menus()` 用 uxtheme 的未公开序号（135 `SetPreferredAppMode`

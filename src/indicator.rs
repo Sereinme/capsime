@@ -28,6 +28,10 @@
 //! 区内），个别程序填客户区坐标的情况会被挡掉。用了哪一个会写进 `CAPSIME_DEBUG` 的诊断
 //! 日志，便于按程序排查。
 //!
+//! 摆在哪一侧由配置决定（`position = auto|above|below|left|right`，默认 `auto`：右下方、
+//! 贴边自动翻到左/上）；`above`/`below` 水平居中于锚点，`left`/`right` 垂直居中，
+//! 首选方向放不下时同样翻到对面。
+//!
 //! ## 卡片外观
 //!
 //! 卡面是 **Apple 系统蓝 + 白色字形**，两套主题各一档：亮色 `#0066CC`（Action Blue，
@@ -46,7 +50,7 @@
 //! 驱动，没有轮询。窗口惰性创建，进程退出时销毁。
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, AtomicU32, Ordering};
 
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -138,7 +142,7 @@ pub fn show(chinese: bool) {
     if !is_enabled() {
         return;
     }
-    refresh_colors();
+    refresh_config();
     let Some(hwnd) = ensure_window() else {
         return;
     };
@@ -165,11 +169,11 @@ pub fn show(chinese: bool) {
     let side = card + margin * 2;
 
     let work = work_area(anchor);
-    // 阴影留白是窗口的一部分，而留白随 DPI 变大：把它从偏移里扣掉，
-    // 保证"看得见的间距"在任何 DPI 下都等于 OFFSET_PX（否则 150% 屏会比 125% 屏更远）
-    let pos = place(anchor, side, OFFSET_PX - margin, work);
+    // place 内部会把阴影留白从间距里扣掉，保证"看得见的间距"等于 OFFSET_PX
+    let layout = placement();
+    let pos = place(anchor, card, margin, OFFSET_PX, work, layout);
     log::debug(&format!(
-        "指示器：锚点来自{}（{},{})，DPI {dpi}，卡片 {card}px 放在 ({},{})",
+        "指示器：锚点来自{}（{},{})，DPI {dpi}，位置 {}，卡片 {card}px 放在 ({},{})",
         match source {
             InsertionPoint::Caret => "插入点",
             InsertionPoint::UiaCaret => "输入位置（UIA）",
@@ -178,6 +182,7 @@ pub fn show(chinese: bool) {
         },
         anchor.x,
         anchor.y,
+        layout.label(),
         pos.x,
         pos.y
     ));
@@ -402,21 +407,75 @@ fn work_area(at: POINT) -> RECT {
     info.rcWork
 }
 
-/// 把卡片摆到锚点旁边：默认右下，贴边时翻到左/上，最后钳进工作区。
-pub(crate) fn place(anchor: POINT, side: i32, offset: i32, work: RECT) -> POINT {
-    let mut x = anchor.x + offset;
-    if x + side > work.right {
-        x = anchor.x - side - offset; // 右边放不下 → 翻到左侧
-    }
-    x = x.clamp(work.left, (work.right - side).max(work.left));
+/// 把卡片摆到锚点旁边，返回**窗口**左上角。
+///
+/// - `card`：卡片边长；`margin`：四周的阴影留白（窗口边长 = `card + 2×margin`）；
+/// - `gap`：**看得见的间距**（卡片可见边缘到锚点的距离），留白在这里被扣掉；
+/// - `placement`：摆在哪一侧。`Auto` 是右下方、贴边翻到左/上；`Above`/`Below`
+///   水平居中于锚点，`Left`/`Right` 垂直居中于锚点。首选方向放不下就翻到对面，
+///   居中摆放的那条轴最后会被夹进工作区。
+pub(crate) fn place(
+    anchor: POINT,
+    card: i32,
+    margin: i32,
+    gap: i32,
+    work: RECT,
+    placement: config::Placement,
+) -> POINT {
+    let side = card + margin * 2;
+    let right_of = anchor.x + gap;
+    let left_of = anchor.x - gap - card;
+    let below = anchor.y + gap;
+    let above = anchor.y - gap - card;
+    let center_x = anchor.x - card / 2;
+    let center_y = anchor.y - card / 2;
 
-    let mut y = anchor.y + offset;
-    if y + side > work.bottom {
-        y = anchor.y - side - offset; // 下方放不下 → 翻到上方
-    }
-    y = y.clamp(work.top, (work.bottom - side).max(work.top));
+    let fits_x = |x: i32| x >= work.left && x + card <= work.right;
+    let fits_y = |y: i32| y >= work.top && y + card <= work.bottom;
 
-    POINT { x, y }
+    let (mut x, mut y) = match placement {
+        config::Placement::Auto => (right_of, below),
+        config::Placement::Below => (center_x, below),
+        config::Placement::Above => (center_x, above),
+        config::Placement::Right => (right_of, center_y),
+        config::Placement::Left => (left_of, center_y),
+    };
+
+    match placement {
+        config::Placement::Auto => {
+            if !fits_x(x) {
+                x = left_of;
+            }
+            if !fits_y(y) {
+                y = above;
+            }
+        }
+        config::Placement::Below => {
+            if !fits_y(y) {
+                y = above;
+            }
+        }
+        config::Placement::Above => {
+            if !fits_y(y) {
+                y = below;
+            }
+        }
+        config::Placement::Right => {
+            if !fits_x(x) {
+                x = left_of;
+            }
+        }
+        config::Placement::Left => {
+            if !fits_x(x) {
+                x = right_of;
+            }
+        }
+    }
+
+    POINT {
+        x: (x - margin).clamp(work.left, (work.right - side).max(work.left)),
+        y: (y - margin).clamp(work.top, (work.bottom - side).max(work.top)),
+    }
 }
 
 fn scale(logical: i32, dpi: u32) -> i32 {
@@ -451,6 +510,8 @@ static FILL_LIGHT: AtomicU32 = AtomicU32::new(pack(config::DEFAULT_LIGHT));
 static FILL_DARK: AtomicU32 = AtomicU32::new(pack(config::DEFAULT_DARK));
 /// 上次读到的配置时间戳（初值取一个不可能的值，保证第一次一定重读）。
 static CONFIG_STAMP: AtomicU32 = AtomicU32::new(u32::MAX);
+/// 卡片位置偏好（[`config::Placement`] 的编码，见 [`placement`]）。
+static PLACEMENT: AtomicU8 = AtomicU8::new(0);
 
 const fn pack(rgb: [u8; 3]) -> u32 {
     ((rgb[0] as u32) << 16) | ((rgb[1] as u32) << 8) | rgb[2] as u32
@@ -464,23 +525,45 @@ fn unpack(value: u32) -> [f32; 3] {
     ]
 }
 
+fn placement() -> config::Placement {
+    match PLACEMENT.load(Ordering::SeqCst) {
+        1 => config::Placement::Above,
+        2 => config::Placement::Below,
+        3 => config::Placement::Left,
+        4 => config::Placement::Right,
+        _ => config::Placement::Auto,
+    }
+}
+
+fn placement_code(placement: config::Placement) -> u8 {
+    match placement {
+        config::Placement::Auto => 0,
+        config::Placement::Above => 1,
+        config::Placement::Below => 2,
+        config::Placement::Left => 3,
+        config::Placement::Right => 4,
+    }
+}
+
 /// 配置文件改了就重读（每次显示前调用；一次 metadata 调用，很便宜）。
-fn refresh_colors() {
+fn refresh_config() {
     let stamp = config::stamp();
     if CONFIG_STAMP.swap(stamp, Ordering::SeqCst) == stamp {
         return;
     }
-    let colors = config::load();
-    FILL_LIGHT.store(pack(colors.light), Ordering::SeqCst);
-    FILL_DARK.store(pack(colors.dark), Ordering::SeqCst);
+    let settings = config::load();
+    FILL_LIGHT.store(pack(settings.light), Ordering::SeqCst);
+    FILL_DARK.store(pack(settings.dark), Ordering::SeqCst);
+    PLACEMENT.store(placement_code(settings.placement), Ordering::SeqCst);
     log::info(&format!(
-        "配色配置：亮色 #{:02X}{:02X}{:02X}、暗色 #{:02X}{:02X}{:02X}",
-        colors.light[0],
-        colors.light[1],
-        colors.light[2],
-        colors.dark[0],
-        colors.dark[1],
-        colors.dark[2]
+        "配置：亮色 #{:02X}{:02X}{:02X}、暗色 #{:02X}{:02X}{:02X}、位置 {}",
+        settings.light[0],
+        settings.light[1],
+        settings.light[2],
+        settings.dark[0],
+        settings.dark[1],
+        settings.dark[2],
+        settings.placement.label()
     ));
 }
 
@@ -913,18 +996,121 @@ mod tests {
         }
     }
 
-    #[test]
-    fn places_below_right_of_anchor() {
-        let p = place(POINT { x: 500, y: 400 }, 40, 6, work());
-        assert_eq!((p.x, p.y), (506, 406));
+    /// 测试用的卡片边长 / 阴影留白（与 100% DPI 下的真实值一致）。
+    const CARD: i32 = 24;
+    const MARGIN: i32 = (CARD as f32 * SHADOW_MARGIN) as i32;
+    /// 窗口左上角 → 卡片可见区域的左上角。
+    fn card_pos(window: POINT) -> (i32, i32) {
+        (window.x + MARGIN, window.y + MARGIN)
     }
 
     #[test]
-    fn flips_left_and_up_near_edges() {
-        let p = place(POINT { x: 1900, y: 1030 }, 40, 6, work());
-        assert!(p.x + 40 <= 1920, "右边贴边时应翻到左侧：({}, {})", p.x, p.y);
-        assert!(p.y + 40 <= 1040, "下边贴边时应翻到上方：({}, {})", p.x, p.y);
-        assert!(p.x >= 0 && p.y >= 0);
+    fn auto_sits_below_right_of_anchor() {
+        let p = place(
+            POINT { x: 500, y: 400 },
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Auto,
+        );
+        assert_eq!(card_pos(p), (506, 406));
+    }
+
+    #[test]
+    fn auto_flips_left_and_up_near_edges() {
+        let p = place(
+            POINT { x: 1900, y: 1030 },
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Auto,
+        );
+        let (x, y) = card_pos(p);
+        assert!(x + CARD <= 1920, "右边贴边时应翻到左侧：({x}, {y})");
+        assert!(y + CARD <= 1040, "下边贴边时应翻到上方：({x}, {y})");
+        assert!(x >= 0 && y >= 0);
+    }
+
+    #[test]
+    fn below_and_above_are_centered() {
+        let anchor = POINT { x: 500, y: 400 };
+        let below = card_pos(place(
+            anchor,
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Below,
+        ));
+        assert_eq!(below, (500 - CARD / 2, 406));
+        let above = card_pos(place(
+            anchor,
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Above,
+        ));
+        assert_eq!(above, (500 - CARD / 2, 400 - 6 - CARD));
+    }
+
+    #[test]
+    fn left_and_right_are_centered() {
+        let anchor = POINT { x: 500, y: 400 };
+        let right = card_pos(place(
+            anchor,
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Right,
+        ));
+        assert_eq!(right, (506, 400 - CARD / 2));
+        let left = card_pos(place(
+            anchor,
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Left,
+        ));
+        assert_eq!(left, (500 - 6 - CARD, 400 - CARD / 2));
+    }
+
+    #[test]
+    fn preferred_side_flips_when_no_room() {
+        // 贴着上边却想要 above → 翻到下方
+        let above = card_pos(place(
+            POINT { x: 500, y: 20 },
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Above,
+        ));
+        assert_eq!(above.1, 26);
+        // 贴着左边却想要 left → 翻到右侧
+        let left = card_pos(place(
+            POINT { x: 20, y: 400 },
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Left,
+        ));
+        assert_eq!(left.0, 26);
+        // 贴着下边却想要 below → 翻到上方
+        let below = card_pos(place(
+            POINT { x: 500, y: 1030 },
+            CARD,
+            MARGIN,
+            6,
+            work(),
+            config::Placement::Below,
+        ));
+        assert_eq!(below.1, 1030 - 6 - CARD);
     }
 
     #[test]
@@ -935,9 +1121,16 @@ mod tests {
             right: 500,
             bottom: 400,
         };
-        let p = place(POINT { x: 120, y: 60 }, 40, 6, w);
+        let p = place(
+            POINT { x: 120, y: 60 },
+            CARD,
+            MARGIN,
+            6,
+            w,
+            config::Placement::Auto,
+        );
         assert!(p.x >= 100 && p.y >= 50);
-        assert!(p.x + 40 <= 500 && p.y + 40 <= 400);
+        assert!(p.x + CARD + MARGIN * 2 <= 500 && p.y + CARD + MARGIN * 2 <= 400);
     }
 
     #[test]
@@ -1069,16 +1262,36 @@ mod tests {
 
     #[test]
     fn visible_gap_is_constant_across_dpi() {
-        // 窗口带着阴影留白；把留白从偏移里扣掉后，任何 DPI 下"看得见的间距"都等于 OFFSET_PX，
-        // 这样 150% 屏与 125% 屏摆在一起不会一大一小
-        for dpi in [96, 120, 144, 192] {
-            let card = scale(CARD_LOGICAL, dpi);
-            let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
-            let side = card + margin * 2;
-            let anchor = POINT { x: 1000, y: 700 };
-            let pos = place(anchor, side, OFFSET_PX - margin, work());
-            assert_eq!(pos.x + margin - anchor.x, OFFSET_PX, "DPI {dpi} 的横向间距");
-            assert_eq!(pos.y + margin - anchor.y, OFFSET_PX, "DPI {dpi} 的纵向间距");
+        // 窗口带着阴影留白；place 把留白扣掉后，任何 DPI、任何位置偏好下
+        // 首选方向上的"看得见的间距"都等于 OFFSET_PX，这样 150% 屏与 125% 屏摆在一起
+        // 不会一大一小
+        let anchor = POINT { x: 1000, y: 700 };
+        for placement in [
+            config::Placement::Auto,
+            config::Placement::Below,
+            config::Placement::Above,
+            config::Placement::Left,
+            config::Placement::Right,
+        ] {
+            for dpi in [96, 120, 144, 192] {
+                let card = scale(CARD_LOGICAL, dpi);
+                let margin = (card as f32 * SHADOW_MARGIN).round() as i32;
+                let pos = place(anchor, card, margin, OFFSET_PX, work(), placement);
+                let (x, y) = (pos.x + margin, pos.y + margin);
+                let gap_ok = match placement {
+                    config::Placement::Auto | config::Placement::Right => x - anchor.x == OFFSET_PX,
+                    config::Placement::Left => anchor.x - (x + card) == OFFSET_PX,
+                    config::Placement::Below => y - anchor.y == OFFSET_PX,
+                    config::Placement::Above => anchor.y - (y + card) == OFFSET_PX,
+                };
+                assert!(
+                    gap_ok,
+                    "{} / DPI {dpi} 的间距不对：卡片 ({x},{y})，锚点 ({}, {})",
+                    placement.label(),
+                    anchor.x,
+                    anchor.y
+                );
+            }
         }
     }
 }

@@ -57,7 +57,7 @@ cargo build --release        # 产物：target\release\capsime.exe
 | 启用大写键切换 | 临时暂停/恢复拦截；暂停后 CapsLock 恢复原生大写锁功能，图标转冷灰 |
 | 开机自动启动 | 写/删注册表 `HKCU\...\CurrentVersion\Run`（只影响当前用户） |
 | 切换时显示提示 | 在光标/输入框附近弹出「中 / en」小卡片（默认开） |
-| 配色配置… | 打开 `%LOCALAPPDATA%\capsime\config.ini`（不存在则创建），改卡片底色；保存即生效 |
+| 编辑配置… | 打开 `%LOCALAPPDATA%\capsime\config.ini`（不存在则创建），改卡片底色与位置偏好；保存即生效 |
 | 查看日志 | 打开 `%LOCALAPPDATA%\capsime\capsime.log`（超过 512 KB 自动轮转一次） |
 | 退出 | 卸载钩子后退出 |
 
@@ -132,9 +132,11 @@ Windows 没有这个统一契约。走了哪一级会写进日志（用 `CAPSIME
 想先看看你这台机器上的程序走哪条路：`cargo run --example caret_probe`。
 原理与逐程序实测见 [docs/ime-switching.md](docs/ime-switching.md) 的「切换提示」一节。
 
-想要别的颜色：托盘菜单「配色配置…」→ 改 `config.ini` 里的 `light_color` / `dark_color`
-（RRGGBB），保存后下一次切换即生效，不用重启。默认是 Apple 系统蓝
-（亮色 `#0066CC`、暗色 `#0A84FF`）。
+想改颜色或位置：托盘菜单「编辑配置…」→ 改 `config.ini` 里的 `light_color` / `dark_color`
+（RRGGBB）与 `position`，保存后下一次切换即生效，不用重启。默认配色是 Apple 系统蓝
+（亮色 `#0066CC`、暗色 `#0A84FF`）；`position` 可设为 `auto`（默认：右下方，贴边自动
+翻转）、`above` / `below`（正上/正下，水平居中于锚点）、`left` / `right`（左/右，垂直
+居中）；首选方向放不下时会自动翻到对面。
 </details>
 
 <details>
@@ -240,7 +242,7 @@ git push origin v0.1.2
 - [ ] 扩展配置文件：自定义注入的切换键、排除的程序（配色已支持）
 - [ ] 长按 CapsLock = 原生大写锁（短按切换中英文）
 - [ ] 按住 CapsLock 临时英文（松开回到中文）
-- [ ] 提示卡片位置微调（上/下/左/右偏好）
+
 
 ## 文档
 

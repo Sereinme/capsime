@@ -45,7 +45,7 @@ pub fn init() -> Result<(), String> {
     let enabled_item = CheckMenuItem::new("启用大写键切换", true, hook::is_enabled(), None);
     let autostart_item = CheckMenuItem::new("开机自动启动", true, autostart::is_enabled(), None);
     let hint_item = CheckMenuItem::new("切换时显示提示", true, indicator::is_enabled(), None);
-    let config_item = MenuItem::new("配色配置…", true, None);
+    let config_item = MenuItem::new("编辑配置…", true, None);
     let log_item = MenuItem::new("查看日志", true, None);
     let quit_item = MenuItem::new("退出", true, None);
 
@@ -91,7 +91,7 @@ pub fn init() -> Result<(), String> {
             // 没有配置文件就先写一份带注释的模板，再用默认编辑器打开
             if let Some(path) = config::ensure_file() {
                 util::open_path(&path);
-                log::info("已打开配色配置（保存后下一次切换即生效）");
+                log::info("已打开配置文件（保存后下一次切换即生效）");
             }
         } else if *id == log_id {
             if let Some(p) = log::path() {
