@@ -223,7 +223,7 @@ position = auto
 - 窗口：`WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，
   用 `SetWindowPos(..., SWP_NOACTIVATE | SWP_SHOWWINDOW)` 显示——**逐像素透明、点击穿透、
   不抢焦点**（抢焦点会让 IME 候选窗弹错位置）；
-- 位图：自己按像素画（超椭圆 + 1px 发丝线 + 暗色上缘微高光 + 柔和投影 smoothstep 衰减，
+- 位图：自己按像素画（超椭圆 + 1px 发丝线 + 暗色上缘微高光 + 柔和投影（smoothstep 衰减，且只在下半区出现，避免四周围一圈灰边），
   4×4 超采样），文字用 GDI + 系统字体画成掩膜、按墨迹包围盒做光学居中。两个字形的
   **笔画粗细用"2×面积/周长"量过并配对**：中 = YaHei UI Bold（3.71px）、en = Segoe UI
   Bold（3.64px）——Semibold 是 2.67px，配哪边都不像同一字重（这就是"中英文看起来

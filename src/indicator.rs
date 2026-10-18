@@ -102,7 +102,7 @@ const CARD_LOGICAL: i32 = 24;
 /// 从偏移里扣掉（`place(anchor, side, OFFSET_PX - margin, ..)`），否则同一个逻辑偏移
 /// 在 150% 屏上看得见 18px、125% 屏上 16px，两块屏摆在一起 2K 那块明显更远。
 const OFFSET_PX: i32 = 6;
-const SHADOW_MARGIN: f32 = 0.34;
+const SHADOW_MARGIN: f32 = 0.32;
 /// 插入点的合理性上限（像素）：超过即认为程序填的不是屏幕坐标。
 const CARET_MAX_PX: i32 = 200;
 /// 插入点允许落在前台窗口外的容差（像素）。
@@ -502,8 +502,8 @@ struct CardPalette {
 /// 卡片形状：**超椭圆**（Apple 式连续圆角方砖），`|u|^n + |v|^n = 1`。
 /// n 越大越接近方砖；4 是连续圆角的常用近似（iOS 图标约 4~5）。
 const SQUIRCLE_N: f32 = 4.0;
-/// 投影相对卡片边长的下移量。
-const SHADOW_DY: f32 = 0.06;
+/// 投影相对卡片边长的下移量：下移要大于模糊宽度的一半，否则上缘也会看到影子（四周一圈光晕）。
+const SHADOW_DY: f32 = 0.10;
 
 /// 卡面颜色（用户可改，见 [`crate::config`]）：打包成 `0xRRGGBB` 的无锁原子量。
 static FILL_LIGHT: AtomicU32 = AtomicU32::new(pack(config::DEFAULT_LIGHT));
@@ -588,7 +588,7 @@ fn palette(light: bool) -> CardPalette {
             border: [0.0, 0.0, 0.0],
             border_alpha: 0.10,
             top_highlight: 0.0,
-            shadow_alpha: 0.24,
+            shadow_alpha: 0.10,
             shadow_blur: 0.20,
             text: [255.0, 255.0, 255.0],
         }
@@ -599,7 +599,7 @@ fn palette(light: bool) -> CardPalette {
             border: [255.0, 255.0, 255.0],
             border_alpha: 0.14,
             top_highlight: 0.08,
-            shadow_alpha: 0.36,
+            shadow_alpha: 0.20,
             shadow_blur: 0.20,
             text: [255.0, 255.0, 255.0],
         }
@@ -684,7 +684,8 @@ fn card_sample(pal: &CardPalette, x: f32, y: f32, margin: f32, card: f32) -> (f3
         return (pal.fill_alpha, c);
     }
 
-    // 卡片之外：向下偏移的柔和投影（Apple 产品阴影的比例，等比缩到卡片尺寸上）
+    // 卡片之外：向下偏移的柔和投影（Apple 产品阴影的比例，等比缩到卡片尺寸上）。
+    // 只有下半区给影子：上缘与两侧上部不围"光晕"，否则小卡片会像自带一圈灰边。
     let shifted = squircle_f(x, y - card * SHADOW_DY, center, half);
     let dist_px = (shifted - 1.0) * half / SQUIRCLE_N;
     let blur = card * pal.shadow_blur;
@@ -692,7 +693,8 @@ fn card_sample(pal: &CardPalette, x: f32, y: f32, margin: f32, card: f32) -> (f3
         return (0.0, [0.0; 3]);
     }
     let t = 1.0 - (dist_px / blur).clamp(0.0, 1.0);
-    let alpha = pal.shadow_alpha * (t * t * (3.0 - 2.0 * t)); // smoothstep：边缘更柔
+    let below = ((y - center) / (card * 0.5)).clamp(0.0, 1.0);
+    let alpha = pal.shadow_alpha * (t * t * (3.0 - 2.0 * t)) * below; // smoothstep + 只留下半
     (alpha, [0.0, 0.0, 0.0])
 }
 
