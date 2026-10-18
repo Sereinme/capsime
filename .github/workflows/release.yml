@@ -16,7 +16,7 @@ jobs:
     runs-on: windows-latest
     steps:
       - name: 检出源码（要完整历史才能生成更新日志）
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
