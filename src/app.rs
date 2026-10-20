@@ -59,6 +59,9 @@ pub fn run() -> i32 {
     // 托盘菜单是系统原生菜单，默认永远浅色；先允许它跟随系统深/浅色，再建托盘
     theme::enable_dark_menus();
 
+    // 先读一次配置：Alt+字母 映射要在第一次按键前就生效，提示卡片也用同一份
+    indicator::refresh_config();
+
     let worker = match spawn_worker() {
         Ok(w) => w,
         Err(e) => {
@@ -130,6 +133,7 @@ pub fn run() -> i32 {
 pub fn selftest(seconds: u64) -> i32 {
     util::attach_parent_console();
     log::init(&util::data_dir());
+    indicator::refresh_config();
     log::info(&format!("selftest 开始（{seconds}s）"));
 
     let worker = match spawn_worker() {

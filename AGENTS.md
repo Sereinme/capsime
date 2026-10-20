@@ -55,7 +55,11 @@ git push origin vX.Y.Z
 - **0 新依赖是倾向**：读 UIA 用的是手写的最小 COM 接口（`src/uia.rs`，槽位/IID 抄自
   SDK 头文件并在模块文档里留了核对表），不要随手换成 `windows` crate
 - 全局键盘钩子回调里只允许 `PostMessage`；任何可能阻塞的调用（UIA、文件 IO）都放
-  工作线程（`app::do_switch`）
+  工作线程（`app::do_switch`）。**唯一例外**是 Alt 重映射的 `SendInput`：必须与按键同步
+  （晚一步就会和抬起乱序），本身非阻塞，而且只对配置里列出的字母执行
+- Alt 重映射（`alt_as_ctrl`，默认 `c, v`）不是"注入 Ctrl+C"那么简单：物理 Alt 还按着时
+  应用会看到 `Ctrl+Alt+C`，所以要先替应用松开 Alt、发完再恢复；注入事件带 `INJECT_TAG`
+  标记，钩子永远跳过它们（避免自激）
 - 几条单元测试是**有意的约束**，改配色/尺寸时别绕过：
   - `card_face_is_conspicuous_in_both_themes`：两套主题的卡面都要白字可读（≥3:1）、
     对浅色页与深色内容都 ≥2.8:1、彩度 ≥100
@@ -64,8 +68,8 @@ git push origin vX.Y.Z
 - 摆放提示卡片时要把**阴影留白**从间距里扣掉（`place(anchor, card, margin, OFFSET_PX, work, placement)`
   内部已扣），否则 150% 屏上会比 125% 屏看得更远；位置偏好（`position = auto|above|below|left|right`）
   也从这里进来
-- 数据目录：`%LOCALAPPDATA%\capsime\`（`capsime.log` 与 `config.ini`）；配置（配色 + 卡片位置）
-  改完保存即生效（按文件时间戳自动重载），不需要重启
+- 数据目录：`%LOCALAPPDATA%\capsime\`（`capsime.log` 与 `config.ini`）；配置（配色、卡片位置、
+  Alt 映射）改完保存即生效（按文件时间戳自动重载），不需要重启
 - 托盘菜单是系统原生菜单（muda 的 `TrackPopupMenu`），**默认永远浅色**：
   `theme::enable_dark_menus()` 用 uxtheme 的未公开序号（135 `SetPreferredAppMode`
   / 136 `FlushMenuThemes`）打开跟随，系统主题变化后要重刷（`tray::refresh_theme`

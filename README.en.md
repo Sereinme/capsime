@@ -24,6 +24,9 @@ switch is logged. Diagnostic tools included.
 ## Features
 
 - ⌨️ **CapsLock toggles Chinese/English** — only a lone CapsLock press is intercepted; chords stay native
+- ⌥ **Alt+C / Alt+V copy & paste (macOS style)** — `Alt+C` / `Alt+V` are translated into `Ctrl+C` / `Ctrl+V`,
+  **without swapping Ctrl and Alt**: `Ctrl+C` stays untouched, so terminating a command in a terminal still works.
+  The mapped letters are configurable.
 - 💬 **A hint on every switch** — a small **Apple system blue** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the focused control's frame — bottom-left for text controls, the bottom-centre of the window/panel otherwise — and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
 - 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode (the context menu follows it too) and goes cool-gray while paused
 - 🪶 **Light** — one ~335 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
@@ -149,12 +152,17 @@ the log (start with `CAPSIME_DEBUG=1`); to see which path your own apps take, ru
 `cargo run --example caret_probe`. Details and per-app measurements:
 [docs/ime-switching.md](docs/ime-switching.md) (Chinese).
 
-Want a different colour or position? Tray menu → “Edit config…” → edit `light_color` /
-`dark_color` (RRGGBB) and `position` in `config.ini`; saving applies on the next switch, no
-restart needed. The default colours are Apple system blues (`#0066CC` light, `#0A84FF` dark).
-`position` can be `auto` (default: below-right, flipping near screen edges), `above` /
-`below` (centred horizontally on the anchor), or `left` / `right` (centred vertically); when
-the preferred side does not fit, it flips to the opposite side.
+Want a different colour, position or key mapping? Tray menu → “Edit config…” → edit
+`config.ini`; saving applies on the next switch, no restart needed:
+
+- `light_color` / `dark_color` (RRGGBB): card colours, defaults are Apple system blues
+  (`#0066CC` light, `#0A84FF` dark);
+- `position`: `auto` (default: below-right, flipping near screen edges), `above` / `below`
+  (centred horizontally on the anchor), `left` / `right` (centred vertically); when the
+  preferred side does not fit, it flips to the opposite side;
+- `alt_as_ctrl`: Alt chords to translate into Ctrl, default `c, v` (Alt+C/V for copy/paste).
+  Only the listed letters are affected; `Ctrl+C` and friends stay untouched, so `Ctrl+C`
+  still terminates a command in a terminal. Leave empty to disable.
 </details>
 
 <details>

@@ -58,12 +58,18 @@ impl Placement {
     }
 }
 
+/// `Alt+字母 → Ctrl+字母` 的默认翻译表：只含 C 和 V（复制/粘贴）。
+/// 位图，bit 0 = A … bit 25 = Z。
+pub const DEFAULT_ALT_AS_CTRL: u32 = (1 << 2) | (1 << 21);
+
 /// 从配置读出来的设置。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Settings {
     pub light: [u8; 3],
     pub dark: [u8; 3],
     pub placement: Placement,
+    /// `Alt+字母 → Ctrl+字母` 的翻译表（位图，bit 0 = A … bit 25 = Z）。
+    pub alt_as_ctrl: u32,
 }
 
 impl Default for Settings {
@@ -72,6 +78,7 @@ impl Default for Settings {
             light: DEFAULT_LIGHT,
             dark: DEFAULT_DARK,
             placement: Placement::Auto,
+            alt_as_ctrl: DEFAULT_ALT_AS_CTRL,
         }
     }
 }
@@ -101,6 +108,11 @@ dark_color = 0A84FF
 #   left  左侧   / right 右侧（垂直居中于锚点）
 # 首选方向放不下时会自动翻到对面。
 position = auto
+
+# 像 macOS 一样用 Alt+字母 代替 Ctrl+字母（只转换列出的字母，其他组合原样放行）。
+# Ctrl+C / Ctrl+V 本身不受影响，所以终端里 Ctrl+C 终止命令照常可用。
+# 多个字母用逗号分隔；留空即关闭这个功能。
+alt_as_ctrl = c, v
 ";
 
 /// 确保配置文件存在（不存在就写模板），返回路径。
@@ -167,10 +179,26 @@ pub fn load() -> Settings {
                     value
                 )),
             },
+            "alt_as_ctrl" => settings.alt_as_ctrl = parse_letters(value),
             _ => {}
         }
     }
     settings
+}
+
+/// `c, v`（或 `cv`）→ 字母位图；非单个字母的片段忽略。
+fn parse_letters(value: &str) -> u32 {
+    value
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter_map(|token| {
+            let mut chars = token.chars();
+            let letter = chars.next()?;
+            if chars.next().is_some() || !letter.is_ascii_alphabetic() {
+                return None;
+            }
+            Some(1u32 << (letter.to_ascii_uppercase() as u8 - b'A'))
+        })
+        .fold(0, |mask, bit| mask | bit)
 }
 
 /// `0066CC` / `#0066CC` → `[0x00, 0x66, 0xCC]`。
@@ -207,6 +235,20 @@ mod tests {
         assert_eq!(d.light, [0x00, 0x66, 0xCC]);
         assert_eq!(d.dark, [0x0A, 0x84, 0xFF]);
         assert_eq!(d.placement, Placement::Auto);
+        assert_eq!(
+            d.alt_as_ctrl, DEFAULT_ALT_AS_CTRL,
+            "默认只翻译 Alt+C / Alt+V"
+        );
+    }
+
+    #[test]
+    fn parses_alt_letters() {
+        assert_eq!(parse_letters("c, v"), (1 << 2) | (1 << 21));
+        assert_eq!(parse_letters("C, V"), (1 << 2) | (1 << 21), "大小写不敏感");
+        assert_eq!(parse_letters("  x  "), 1 << 23);
+        assert_eq!(parse_letters(""), 0, "空值 = 关闭");
+        assert_eq!(parse_letters("cv"), 0, "只认单个字母，连写忽略");
+        assert_eq!(parse_letters("c, 1, v"), (1 << 2) | (1 << 21), "忽略非字母");
     }
 
     #[test]

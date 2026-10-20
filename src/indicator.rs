@@ -548,7 +548,10 @@ fn placement_code(placement: config::Placement) -> u8 {
 }
 
 /// 配置文件改了就重读（每次显示前调用；一次 metadata 调用，很便宜）。
-fn refresh_config() {
+/// 配置文件改了就重读（启动时与每次显示前调用；一次 metadata 调用，很便宜）。
+///
+/// 配置是共享的：这里顺手把 Alt 重映射表也推给钩子，改完保存即可生效。
+pub(crate) fn refresh_config() {
     let stamp = config::stamp();
     if CONFIG_STAMP.swap(stamp, Ordering::SeqCst) == stamp {
         return;
@@ -557,15 +560,17 @@ fn refresh_config() {
     FILL_LIGHT.store(pack(settings.light), Ordering::SeqCst);
     FILL_DARK.store(pack(settings.dark), Ordering::SeqCst);
     PLACEMENT.store(placement_code(settings.placement), Ordering::SeqCst);
+    crate::hook::set_alt_as_ctrl(settings.alt_as_ctrl);
     log::info(&format!(
-        "配置：亮色 #{:02X}{:02X}{:02X}、暗色 #{:02X}{:02X}{:02X}、位置 {}",
+        "配置：亮色 #{:02X}{:02X}{:02X}、暗色 #{:02X}{:02X}{:02X}、位置 {}、Alt 映射 {} 个键",
         settings.light[0],
         settings.light[1],
         settings.light[2],
         settings.dark[0],
         settings.dark[1],
         settings.dark[2],
-        settings.placement.label()
+        settings.placement.label(),
+        settings.alt_as_ctrl.count_ones()
     ));
 }
 
