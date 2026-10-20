@@ -75,6 +75,11 @@ pub fn set_ctrl_copy(mode: config::CtrlCopy) {
     CTRL_COPY.store(mode.code(), Ordering::SeqCst);
 }
 
+/// 当前生效的原生 Ctrl+C/V 处理方式（托盘勾选状态用）。
+pub fn ctrl_copy() -> config::CtrlCopy {
+    config::CtrlCopy::from_code(CTRL_COPY.load(Ordering::SeqCst))
+}
+
 /// 设置接收切换请求的工作线程窗口。
 pub fn set_target(worker_hwnd: HWND) {
     TARGET.store(worker_hwnd as isize, Ordering::SeqCst);

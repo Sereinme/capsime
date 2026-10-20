@@ -562,6 +562,7 @@ pub(crate) fn refresh_config() {
     PLACEMENT.store(placement_code(settings.placement), Ordering::SeqCst);
     crate::hook::set_alt_as_ctrl(settings.alt_as_ctrl);
     crate::hook::set_ctrl_copy(settings.ctrl_copy);
+    crate::tray::sync_ctrl_copy(settings.ctrl_copy);
     log::info(&format!(
         "配置：亮色 #{:02X}{:02X}{:02X}、暗色 #{:02X}{:02X}{:02X}、位置 {}、Alt 映射 {} 个键、原生 Ctrl+C/V {}",
         settings.light[0],

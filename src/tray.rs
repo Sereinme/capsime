@@ -21,6 +21,7 @@ thread_local! {
     static ENABLED_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
     static AUTOSTART_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
     static HINT_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
+    static CTRL_ITEM: RefCell<Option<CheckMenuItem>> = const { RefCell::new(None) };
     /// 当前图标要表达的状态（启用/暂停 + 亮/暗主题）
     static APPEARANCE: RefCell<icon::Appearance> = const {
         RefCell::new(icon::Appearance {
@@ -45,6 +46,12 @@ pub fn init() -> Result<(), String> {
     let enabled_item = CheckMenuItem::new("启用大写键切换", true, hook::is_enabled(), None);
     let autostart_item = CheckMenuItem::new("开机自动启动", true, autostart::is_enabled(), None);
     let hint_item = CheckMenuItem::new("切换时显示提示", true, indicator::is_enabled(), None);
+    let ctrl_item = CheckMenuItem::new(
+        "屏蔽原生 Ctrl+C/V",
+        true,
+        hook::ctrl_copy() != config::CtrlCopy::Keep,
+        None,
+    );
     let config_item = MenuItem::new("编辑配置…", true, None);
     let log_item = MenuItem::new("查看日志", true, None);
     let quit_item = MenuItem::new("退出", true, None);
@@ -53,6 +60,7 @@ pub fn init() -> Result<(), String> {
     menu.append(&enabled_item).map_err(|e| e.to_string())?;
     menu.append(&autostart_item).map_err(|e| e.to_string())?;
     menu.append(&hint_item).map_err(|e| e.to_string())?;
+    menu.append(&ctrl_item).map_err(|e| e.to_string())?;
     menu.append(&config_item).map_err(|e| e.to_string())?;
     menu.append(&PredefinedMenuItem::separator())
         .map_err(|e| e.to_string())?;
@@ -70,6 +78,7 @@ pub fn init() -> Result<(), String> {
     let enabled_id = enabled_item.id().clone();
     let autostart_id = autostart_item.id().clone();
     let hint_id = hint_item.id().clone();
+    let ctrl_id = ctrl_item.id().clone();
     let config_id = config_item.id().clone();
     let log_id = log_item.id().clone();
     let quit_id = quit_item.id().clone();
@@ -78,6 +87,7 @@ pub fn init() -> Result<(), String> {
     ENABLED_ITEM.with(|c| *c.borrow_mut() = Some(enabled_item));
     AUTOSTART_ITEM.with(|c| *c.borrow_mut() = Some(autostart_item));
     HINT_ITEM.with(|c| *c.borrow_mut() = Some(hint_item));
+    CTRL_ITEM.with(|c| *c.borrow_mut() = Some(ctrl_item));
 
     MenuEvent::set_event_handler(Some(move |event: MenuEvent| {
         let id = event.id();
@@ -87,6 +97,8 @@ pub fn init() -> Result<(), String> {
             on_toggle_autostart();
         } else if *id == hint_id {
             on_toggle_hint();
+        } else if *id == ctrl_id {
+            on_toggle_ctrl_copy();
         } else if *id == config_id {
             // 没有配置文件就先写一份带注释的模板，再用默认编辑器打开
             if let Some(path) = config::ensure_file() {
@@ -176,6 +188,34 @@ fn on_toggle_hint() {
         "已开启切换提示"
     } else {
         "已关闭切换提示"
+    });
+}
+
+/// 快速开关"屏蔽原生 Ctrl+C/V"：写回配置文件并立即生效（重启后保持）。
+fn on_toggle_ctrl_copy() {
+    let next = if hook::ctrl_copy() == config::CtrlCopy::Keep {
+        config::CtrlCopy::Gui
+    } else {
+        config::CtrlCopy::Keep
+    };
+    if let Err(e) = config::set_ctrl_copy(next) {
+        log::warn(&format!("保存配置失败：{e}"));
+    }
+    hook::set_ctrl_copy(next);
+    sync_ctrl_copy(next);
+    log::info(if next == config::CtrlCopy::Keep {
+        "已恢复原生 Ctrl+C/V"
+    } else {
+        "已屏蔽原生 Ctrl+C/V（Alt 组合仍可用，终端里 Ctrl+C 保留）"
+    });
+}
+
+/// 配置重载后同步勾选状态（主线程调用；托盘还没建时是空操作）。
+pub fn sync_ctrl_copy(mode: config::CtrlCopy) {
+    CTRL_ITEM.with(|c| {
+        if let Some(item) = c.borrow().as_ref() {
+            item.set_checked(mode != config::CtrlCopy::Keep);
+        }
     });
 }
 

@@ -264,6 +264,43 @@ fn parse_letters(value: &str) -> u32 {
         .fold(0, |mask, bit| mask | bit)
 }
 
+/// 托盘开关用：把原生 Ctrl+C/V 的处理方式写回配置文件。
+pub fn set_ctrl_copy(mode: CtrlCopy) -> std::io::Result<()> {
+    set_key("ctrl_copy_paste", mode.label())
+}
+
+/// 把某个键改写为新值（保留注释、其他行与顺序；没有该键就追加到末尾）。
+pub fn set_key(key: &str, value: &str) -> std::io::Result<()> {
+    let path = path();
+    let text = std::fs::read_to_string(&path).unwrap_or_default();
+    std::fs::write(&path, rewrite_key(&text, key, value))
+}
+
+/// 纯函数版：只替换 `key = value` 那一行（注释里的同名文字不受影响）。
+fn rewrite_key(text: &str, key: &str, value: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 32);
+    let mut replaced = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        let matches = !trimmed.starts_with('#')
+            && trimmed
+                .split_once('=')
+                .map(|(k, _)| k.trim().eq_ignore_ascii_case(key))
+                .unwrap_or(false);
+        if matches {
+            out.push_str(&format!("{key} = {value}"));
+            replaced = true;
+        } else {
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+    if !replaced {
+        out.push_str(&format!("{key} = {value}\n"));
+    }
+    out
+}
+
 /// `0066CC` / `#0066CC` → `[0x00, 0x66, 0xCC]`。
 fn parse_hex(value: &str) -> Option<[u8; 3]> {
     let hex = value.trim().trim_start_matches('#');
@@ -317,6 +354,26 @@ mod tests {
         assert_eq!(parse_letters(""), 0, "空值 = 关闭");
         assert_eq!(parse_letters("cv"), 0, "只认单个字母，连写忽略");
         assert_eq!(parse_letters("c, 1, v"), (1 << 2) | (1 << 21), "忽略非字母");
+    }
+
+    #[test]
+    fn rewrite_key_keeps_other_lines() {
+        let text = "# doc\nlight_color = 0066CC\nctrl_copy_paste = gui\n";
+        let out = rewrite_key(text, "ctrl_copy_paste", "keep");
+        assert!(out.contains("ctrl_copy_paste = keep"));
+        assert!(out.contains("# doc") && out.contains("light_color = 0066CC"));
+        assert!(!out.contains("gui"));
+    }
+
+    #[test]
+    fn rewrite_key_appends_and_ignores_comments() {
+        let out = rewrite_key(
+            "# ctrl_copy_paste = off\nlight_color = 0066CC\n",
+            "ctrl_copy_paste",
+            "gui",
+        );
+        assert!(out.contains("# ctrl_copy_paste = off"), "注释不动");
+        assert!(out.trim_end().ends_with("ctrl_copy_paste = gui"));
     }
 
     #[test]

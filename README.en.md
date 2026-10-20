@@ -27,7 +27,7 @@ switch is logged. Diagnostic tools included.
 - ⌥ **Alt+C / Alt+V copy & paste (macOS style)** — `Alt+C` / `Alt+V` are translated into `Ctrl+C` / `Ctrl+V`,
   and the **native Ctrl+C/V are turned off in GUI apps by default** (Alt chords only); console windows are
   exempt, so Ctrl+C still terminates a command in a terminal. Ctrl and Alt are not swapped; both the
-  mapping and the switch are configurable.
+  mapping and the switch are configurable; the tray menu toggles it in one click.
 - 💬 **A hint on every switch** — a small **Apple system blue** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the focused control's frame — bottom-left for text controls, the bottom-centre of the window/panel otherwise — and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
 - 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode (the context menu follows it too) and goes cool-gray while paused
 - 🪶 **Light** — one ~335 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
@@ -63,6 +63,7 @@ Requires Rust 1.85+. Works with either the MSVC or GNU toolchain.
 | Enable CapsLock switching | Pause/resume interception; while paused CapsLock behaves natively and the icon turns cool-gray |
 | Start with Windows | Adds/removes an `HKCU\...\CurrentVersion\Run` entry (current user only) |
 | Show switching hint | Pops the 「中 / en」 card near the caret / cursor (on by default) |
+| Block native Ctrl+C/V | When checked, Ctrl+C/V no longer copy/paste in GUI apps (Alt chords still work, consoles keep Ctrl+C); the setting is written to config and persists |
 | Edit config… | Opens `%LOCALAPPDATA%\capsime\config.ini` (created if missing) to change the card colour and placement; saving applies immediately |
 | View log | Opens `%LOCALAPPDATA%\capsime\capsime.log` (rotates at 512 KB) |
 | Quit | Uninstalls the hook and exits |
