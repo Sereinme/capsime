@@ -9,7 +9,7 @@
   <a href="https://github.com/Sereinme/capsime/blob/master/LICENSE"><img alt="license" src="https://img.shields.io/github/license/Sereinme/capsime?style=flat-square"></a>
   <a href="#"><img alt="platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D6?style=flat-square"></a>
   <a href="#"><img alt="rust" src="https://img.shields.io/badge/rust-1.85%2B-orange?style=flat-square"></a>
-  <a href="#"><img alt="size" src="https://img.shields.io/badge/exe-~335%20KB-6272A4?style=flat-square"></a>
+  <a href="#"><img alt="size" src="https://img.shields.io/badge/exe-~350%20KB-6272A4?style=flat-square"></a>
 </div>
 
 CapsLock is a dead key for most people. capsime turns it into the Chinese/English switch:
@@ -30,7 +30,7 @@ switch is logged. Diagnostic tools included.
   mapping and the switch are configurable; the tray menu toggles it in one click.
 - 💬 **A hint on every switch** — a small **Apple system blue** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the focused control's frame — bottom-left for text controls, the bottom-centre of the window/panel otherwise — and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
 - 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode (the context menu follows it too) and goes cool-gray while paused
-- 🪶 **Light** — one ~335 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
+- 🪶 **Light** — one ~350 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
 - 🍃 **Zero polling** — the hook callback only posts one message; idle CPU measured at 0 ms over 15 s
 - 🔍 **Debuggable** — every switch logs method/state/verification/foreground app; ships `--selftest` and an `ime_probe` diagnostic
 - 🧩 **No third parties** — no network, no telemetry, no admin rights, no injection into other processes
@@ -200,7 +200,7 @@ Measured on Windows 11 x64, release build:
 | CPU per switch | ~1 ms (including the log write and the UIA query) |
 | After 100 switches | working set / private bytes / handles / threads unchanged (no leaks) |
 | Startup to tray ready | < 1 s |
-| Release size | 343,040 bytes (~335 KB, LTO + strip, MSVC build on CI) |
+| Release size | ~350 KB (MSVC build on CI; ~472 KB with the local GNU toolchain) |
 
 The hook callback only checks "is this CapsLock with no modifiers" and posts one message;
 ordinary keystrokes cost two atomic reads and an integer compare, so global typing speed is
