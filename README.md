@@ -22,7 +22,8 @@ CapsLock 常年吃灰。capsime 把它变成中英文切换键：**按一下切�
 
 - ⌨️ **CapsLock 中英文一键切换** —— 只拦"单独按下的 CapsLock"，其余组合键原样保留
 - ⌥ **Alt+C / Alt+V 复制粘贴（macOS 风格）** —— 把 `Alt+C` / `Alt+V` 翻译成 `Ctrl+C` / `Ctrl+V`，
-  但**不交换 Ctrl 和 Alt**：`Ctrl+C` 原样保留，终端里照常终止命令；映射哪些字母可在配置里改
+  同时**默认关掉 GUI 应用里的原生 Ctrl+C/V**（只留 Alt 组合）；终端窗口例外，Ctrl+C 终止命令照常。
+  没有交换 Ctrl 和 Alt，映射表与开关都可在配置里改
 - 💬 **切换时给个提示** —— 在插入点/输入框旁边弹出 **Apple 系统蓝**的「中 / en」小卡片（白字，亮/暗模式各一档色深），约 0.7 秒淡出；
   拿不到插入点就退到输入区域、再退到鼠标位置；亮/暗模式下自动调整描边与投影，可在托盘菜单关掉
 - 🎨 **会看眼色的托盘图标** —— 几何圆环 + 一笔朱砂收锋的「C」，跟随系统亮/暗模式自动换色（右键菜单也跟着变深/浅），暂停时转冷灰
@@ -142,8 +143,9 @@ Windows 没有这个统一契约。走了哪一级会写进日志（用 `CAPSIME
 - `light_color` / `dark_color`（RRGGBB）：卡片底色，默认 Apple 系统蓝（亮色 `#0066CC`、暗色 `#0A84FF`）；
 - `position`：`auto`（默认，右下方、贴边自动翻转）、`above` / `below`（正上/正下，水平居中于锚点）、
   `left` / `right`（左/右，垂直居中），首选方向放不下时自动翻到对面；
-- `alt_as_ctrl`：要翻译成 Ctrl 的 Alt 组合，默认 `c, v`（即 Alt+C/V 复制粘贴）。只影响列出的
-  字母，`Ctrl+C` 等原样保留——终端里 `Ctrl+C` 终止命令不受影响；留空即关闭这个功能。
+- `alt_as_ctrl`：要翻译成 Ctrl 的 Alt 组合，默认 `c, v`（即 Alt+C/V 复制粘贴）；留空即关闭；
+- `ctrl_copy_paste`：原生 Ctrl+C/V 的处理，`gui`（默认，GUI 里吞掉、终端保留）、`keep`（完全保留）、
+  `off`（一律吞掉）。终端按窗口类识别：Windows Terminal、conhost、mintty、ConEmu、PuTTY。
 </details>
 
 <details>

@@ -225,6 +225,11 @@ Ctrl+V（默认 `c, v`）。实现上有两个坑：
 2. **只翻译"单按 Alt"的组合**：还按着 Ctrl/Shift/Win 时（例如 AltGr = Ctrl+Alt）原样放行；
    `Ctrl+C` / `Ctrl+V` 本身完全不经过这段逻辑，所以终端里 `Ctrl+C` 终止命令不受影响。
 
+原生 `Ctrl+C` / `Ctrl+V` 默认在**图形界面里被吞掉**（只留 Alt 组合），但**控制台/终端窗口例外**
+——那里的 Ctrl+C 是"终止命令"，不能吞。配置项 `ctrl_copy_paste` 三档：`gui`（默认）/ `keep`
+（完全保留）/ `off`（一律吞掉）。终端按窗口类识别（Windows Terminal、conhost、mintty、ConEmu、
+PuTTY），嵌在 IDE 里的终端识别不出来，需要保留就把它设成 `keep`。
+
 托盘"暂停"时映射也一起停用（暂停 = 不再介入任何按键）。
 
 - 卡片 **24 逻辑像素**（150% 缩放下 36px、125% 下 30px），与锚点的间距是**看得见的

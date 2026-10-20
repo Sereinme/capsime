@@ -561,8 +561,9 @@ pub(crate) fn refresh_config() {
     FILL_DARK.store(pack(settings.dark), Ordering::SeqCst);
     PLACEMENT.store(placement_code(settings.placement), Ordering::SeqCst);
     crate::hook::set_alt_as_ctrl(settings.alt_as_ctrl);
+    crate::hook::set_ctrl_copy(settings.ctrl_copy);
     log::info(&format!(
-        "配置：亮色 #{:02X}{:02X}{:02X}、暗色 #{:02X}{:02X}{:02X}、位置 {}、Alt 映射 {} 个键",
+        "配置：亮色 #{:02X}{:02X}{:02X}、暗色 #{:02X}{:02X}{:02X}、位置 {}、Alt 映射 {} 个键、原生 Ctrl+C/V {}",
         settings.light[0],
         settings.light[1],
         settings.light[2],
@@ -570,7 +571,8 @@ pub(crate) fn refresh_config() {
         settings.dark[1],
         settings.dark[2],
         settings.placement.label(),
-        settings.alt_as_ctrl.count_ones()
+        settings.alt_as_ctrl.count_ones(),
+        settings.ctrl_copy.label()
     ));
 }
 

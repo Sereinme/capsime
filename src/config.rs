@@ -58,6 +58,51 @@ impl Placement {
     }
 }
 
+/// 原生 `Ctrl+C` / `Ctrl+V` 的处理方式。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[repr(u8)]
+pub enum CtrlCopy {
+    /// 保留原生行为（Ctrl+C/V 照常复制粘贴）
+    Keep = 0,
+    /// 默认：只在图形界面里吞掉；控制台/终端窗口保留（那里的 Ctrl+C 是"终止命令"）
+    #[default]
+    Gui = 1,
+    /// 一律吞掉（终端里的 Ctrl+C 也会失效）
+    Off = 2,
+}
+
+impl CtrlCopy {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "keep" | "on" => Some(Self::Keep),
+            "gui" => Some(Self::Gui),
+            "off" => Some(Self::Off),
+            _ => None,
+        }
+    }
+
+    /// 规范名（日志与模板里用）。
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Keep => "keep",
+            Self::Gui => "gui",
+            Self::Off => "off",
+        }
+    }
+
+    pub const fn code(self) -> u8 {
+        self as u8
+    }
+
+    pub fn from_code(code: u8) -> Self {
+        match code {
+            0 => Self::Keep,
+            2 => Self::Off,
+            _ => Self::Gui,
+        }
+    }
+}
+
 /// `Alt+字母 → Ctrl+字母` 的默认翻译表：只含 C 和 V（复制/粘贴）。
 /// 位图，bit 0 = A … bit 25 = Z。
 pub const DEFAULT_ALT_AS_CTRL: u32 = (1 << 2) | (1 << 21);
@@ -70,6 +115,8 @@ pub struct Settings {
     pub placement: Placement,
     /// `Alt+字母 → Ctrl+字母` 的翻译表（位图，bit 0 = A … bit 25 = Z）。
     pub alt_as_ctrl: u32,
+    /// 原生 `Ctrl+C` / `Ctrl+V` 的处理方式。
+    pub ctrl_copy: CtrlCopy,
 }
 
 impl Default for Settings {
@@ -79,6 +126,7 @@ impl Default for Settings {
             dark: DEFAULT_DARK,
             placement: Placement::Auto,
             alt_as_ctrl: DEFAULT_ALT_AS_CTRL,
+            ctrl_copy: CtrlCopy::default(),
         }
     }
 }
@@ -113,6 +161,13 @@ position = auto
 # Ctrl+C / Ctrl+V 本身不受影响，所以终端里 Ctrl+C 终止命令照常可用。
 # 多个字母用逗号分隔；留空即关闭这个功能。
 alt_as_ctrl = c, v
+
+# 原生 Ctrl+C / Ctrl+V 的处理：
+#   keep 保留：Ctrl+C/V 照常复制粘贴
+#   gui  默认：只在图形界面里吞掉；控制台/终端窗口（Windows Terminal、conhost、
+#        mintty 等）保留，Ctrl+C 终止命令不受影响
+#   off  一律吞掉（终端里的 Ctrl+C 也会失效）
+ctrl_copy_paste = gui
 ";
 
 /// 确保配置文件存在（不存在就写模板），返回路径。
@@ -180,6 +235,14 @@ pub fn load() -> Settings {
                 )),
             },
             "alt_as_ctrl" => settings.alt_as_ctrl = parse_letters(value),
+            "ctrl_copy_paste" => match CtrlCopy::parse(value) {
+                Some(mode) => settings.ctrl_copy = mode,
+                None => log::warn(&format!(
+                    "配置第 {} 行：{} 不是 keep/gui/off，忽略",
+                    index + 1,
+                    value
+                )),
+            },
             _ => {}
         }
     }
@@ -239,6 +302,11 @@ mod tests {
             d.alt_as_ctrl, DEFAULT_ALT_AS_CTRL,
             "默认只翻译 Alt+C / Alt+V"
         );
+        assert_eq!(
+            d.ctrl_copy,
+            CtrlCopy::Gui,
+            "默认只在 GUI 里吞掉原生 Ctrl+C/V"
+        );
     }
 
     #[test]
@@ -249,6 +317,21 @@ mod tests {
         assert_eq!(parse_letters(""), 0, "空值 = 关闭");
         assert_eq!(parse_letters("cv"), 0, "只认单个字母，连写忽略");
         assert_eq!(parse_letters("c, 1, v"), (1 << 2) | (1 << 21), "忽略非字母");
+    }
+
+    #[test]
+    fn parses_ctrl_copy_modes() {
+        for (text, want) in [
+            ("keep", CtrlCopy::Keep),
+            ("ON", CtrlCopy::Keep),
+            ("gui", CtrlCopy::Gui),
+            (" off ", CtrlCopy::Off),
+        ] {
+            assert_eq!(CtrlCopy::parse(text), Some(want), "解析 {text:?}");
+        }
+        assert_eq!(CtrlCopy::parse("maybe"), None);
+        assert_eq!(CtrlCopy::from_code(1), CtrlCopy::Gui);
+        assert_eq!(CtrlCopy::from_code(9), CtrlCopy::Gui, "未知编码按默认处理");
     }
 
     #[test]

@@ -25,8 +25,9 @@ switch is logged. Diagnostic tools included.
 
 - ⌨️ **CapsLock toggles Chinese/English** — only a lone CapsLock press is intercepted; chords stay native
 - ⌥ **Alt+C / Alt+V copy & paste (macOS style)** — `Alt+C` / `Alt+V` are translated into `Ctrl+C` / `Ctrl+V`,
-  **without swapping Ctrl and Alt**: `Ctrl+C` stays untouched, so terminating a command in a terminal still works.
-  The mapped letters are configurable.
+  and the **native Ctrl+C/V are turned off in GUI apps by default** (Alt chords only); console windows are
+  exempt, so Ctrl+C still terminates a command in a terminal. Ctrl and Alt are not swapped; both the
+  mapping and the switch are configurable.
 - 💬 **A hint on every switch** — a small **Apple system blue** 「中 / en」 card (white glyph, one shade for each light/dark mode) fades in at the insertion point / input field and fades out in ~0.7 s; when no caret is available it falls back to the focused control's frame — bottom-left for text controls, the bottom-centre of the window/panel otherwise — and then to the mouse cursor. Rim and shadow adapt to light/dark mode; it can be turned off from the tray menu
 - 🎨 **A tray icon that knows the room** — a geometric ring with a vermilion brush tail forming a "C"; follows the system light/dark mode (the context menu follows it too) and goes cool-gray while paused
 - 🪶 **Light** — one ~335 KB exe; ~11 MB working set, 1.6 MB private bytes when idle
@@ -160,9 +161,11 @@ Want a different colour, position or key mapping? Tray menu → “Edit config�
 - `position`: `auto` (default: below-right, flipping near screen edges), `above` / `below`
   (centred horizontally on the anchor), `left` / `right` (centred vertically); when the
   preferred side does not fit, it flips to the opposite side;
-- `alt_as_ctrl`: Alt chords to translate into Ctrl, default `c, v` (Alt+C/V for copy/paste).
-  Only the listed letters are affected; `Ctrl+C` and friends stay untouched, so `Ctrl+C`
-  still terminates a command in a terminal. Leave empty to disable.
+- `alt_as_ctrl`: Alt chords to translate into Ctrl, default `c, v` (Alt+C/V for copy/paste);
+  leave empty to disable;
+- `ctrl_copy_paste`: what to do with the native Ctrl+C/V — `gui` (default: swallowed in GUI apps,
+  kept in consoles), `keep` (fully native), `off` (swallowed everywhere). Consoles are recognised
+  by window class: Windows Terminal, conhost, mintty, ConEmu, PuTTY.
 </details>
 
 <details>

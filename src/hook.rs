@@ -17,17 +17,17 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU8, AtomicU16, AtomicU32,
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_CAPITAL,
-    VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RSHIFT,
-    VK_RWIN,
+    GetAsyncKeyState, INPUT, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, SendInput, VK_C,
+    VK_CAPITAL, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_RCONTROL, VK_RMENU,
+    VK_RSHIFT, VK_RWIN, VK_V,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED, PostMessageW,
-    SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_APP, WM_KEYDOWN, WM_KEYUP,
-    WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, GetClassNameW, GetForegroundWindow, HC_ACTION, HHOOK, KBDLLHOOKSTRUCT,
+    LLKHF_INJECTED, PostMessageW, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_APP,
+    WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 
-use crate::util;
+use crate::{config, util};
 
 /// 钩子线程 -> 工作线程：请求执行一次"切换中英文"。
 pub const WM_SWITCH: u32 = WM_APP + 1;
@@ -52,6 +52,11 @@ static ALT_RELEASED: AtomicBool = AtomicBool::new(false);
 /// 这一轮 Alt 里翻译过按键 → 松开 Alt 前轻敲一次 Ctrl，遮蔽"点 Alt 打开菜单栏"。
 static ALT_MASK: AtomicBool = AtomicBool::new(false);
 
+/// 原生 Ctrl+C / Ctrl+V 的处理方式（[`config::CtrlCopy`] 的编码）。
+static CTRL_COPY: AtomicU8 = AtomicU8::new(config::CtrlCopy::Gui.code());
+/// 正被吞掉的 Ctrl 组合键（0 = 无）：抬起时一起吞掉。
+static CTRL_SWALLOW: AtomicU16 = AtomicU16::new(0);
+
 pub fn set_enabled(enabled: bool) {
     ENABLED.store(enabled, Ordering::SeqCst);
 }
@@ -63,6 +68,11 @@ pub fn is_enabled() -> bool {
 /// 设置 `Alt+字母 → Ctrl+字母` 的翻译表（配置文件 `alt_as_ctrl`）。
 pub fn set_alt_as_ctrl(mask: u32) {
     ALT_REMAP.store(mask, Ordering::SeqCst);
+}
+
+/// 设置原生 `Ctrl+C` / `Ctrl+V` 的处理方式（配置文件 `ctrl_copy_paste`）。
+pub fn set_ctrl_copy(mode: config::CtrlCopy) {
+    CTRL_COPY.store(mode.code(), Ordering::SeqCst);
 }
 
 /// 设置接收切换请求的工作线程窗口。
@@ -114,6 +124,45 @@ fn other_modifiers_down() -> bool {
     ]
     .iter()
     .any(|&vk| unsafe { GetAsyncKeyState(vk as i32) } < 0)
+}
+
+/// 只按着 Ctrl（没有 Alt/Shift/Win）：原生 Ctrl+C / Ctrl+V 的判断条件。
+fn ctrl_only_down() -> bool {
+    let ctrl = [VK_CONTROL, VK_LCONTROL, VK_RCONTROL]
+        .iter()
+        .any(|&vk| unsafe { GetAsyncKeyState(vk as i32) } < 0);
+    let others = [VK_LSHIFT, VK_RSHIFT, VK_LMENU, VK_RMENU, VK_LWIN, VK_RWIN]
+        .iter()
+        .any(|&vk| unsafe { GetAsyncKeyState(vk as i32) } < 0);
+    ctrl && !others
+}
+
+/// 控制台/终端窗口的类名：这些地方 Ctrl+C 是"终止命令"，不能吞。
+const CONSOLE_CLASSES: [&str; 5] = [
+    "ConsoleWindowClass",            // conhost（cmd / PowerShell 经典窗口）
+    "CASCADIA_HOSTING_WINDOW_CLASS", // Windows Terminal
+    "VirtualConsole",                // ConEmu
+    "mintty",                        // Git Bash / Cygwin
+    "PuTTY",
+];
+
+fn is_console_class(class: &str) -> bool {
+    CONSOLE_CLASSES
+        .iter()
+        .any(|known| class.eq_ignore_ascii_case(known))
+}
+
+fn is_console_window() -> bool {
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_null() {
+        return false;
+    }
+    let mut buf = [0u16; 128];
+    let len = unsafe { GetClassNameW(hwnd, buf.as_mut_ptr(), buf.len() as i32) };
+    if len <= 0 {
+        return false;
+    }
+    is_console_class(&String::from_utf16_lossy(&buf[..len as usize]))
 }
 
 /// 字母键 → 翻译表里的位；非字母返回 0（永远不会命中）。
@@ -219,6 +268,28 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
                         return 1;
                     }
                 }
+
+                // 原生 Ctrl+C / Ctrl+V：按配置决定是否吞掉；终端窗口保留 Ctrl+C 终止命令
+                if ENABLED.load(Ordering::SeqCst) && (vk == VK_C || vk == VK_V) {
+                    if down {
+                        if ctrl_only_down() {
+                            let mode =
+                                config::CtrlCopy::from_code(CTRL_COPY.load(Ordering::SeqCst));
+                            let swallow = match mode {
+                                config::CtrlCopy::Keep => false,
+                                config::CtrlCopy::Off => true,
+                                config::CtrlCopy::Gui => !is_console_window(),
+                            };
+                            if swallow {
+                                CTRL_SWALLOW.store(vk, Ordering::SeqCst);
+                                return 1;
+                            }
+                        }
+                    } else if CTRL_SWALLOW.swap(0, Ordering::SeqCst) == vk {
+                        // 按下被吞过：抬起也吞掉，对应用保持不可见
+                        return 1;
+                    }
+                }
             }
 
             // 只处理物理 CapsLock 键，放行程序注入的按键（LLKHF_INJECTED）
@@ -254,6 +325,15 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn console_classes_are_recognized() {
+        assert!(is_console_class("CASCADIA_HOSTING_WINDOW_CLASS"));
+        assert!(is_console_class("consolewindowclass"), "大小写不敏感");
+        assert!(is_console_class("mintty"));
+        assert!(!is_console_class("Chrome_WidgetWin_1"));
+        assert!(!is_console_class("Notepad"));
+    }
 
     #[test]
     fn letter_bit_covers_only_letters() {
